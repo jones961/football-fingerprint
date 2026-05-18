@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Environment and secrets
+config.py
+.env
+
+# Soccerdata cache
+soccerdata/
+
+# PyCharm
+.idea/
+
+# Database
+*.sql
+*.dump
+
+# Selenium
+*.lock
+driver_fixing.lock
