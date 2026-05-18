@@ -202,8 +202,21 @@ def add_match_context_table():
     conn.close()
     print("match_context table created, matches table updated")
 
+def fix_match_events_constraints():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("""
+        ALTER TABLE match_events 
+        ALTER COLUMN team_id DROP NOT NULL,
+        ALTER COLUMN player_id DROP NOT NULL
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("match_events constraints updated")
 
 if __name__ == "__main__":
     create_tables()
     add_caretaker_column()
     add_match_context_table()
+    fix_match_events_constraints()

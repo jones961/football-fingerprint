@@ -1,6 +1,8 @@
 import soccerdata as sd
 import psycopg2
 import math
+import json
+from psycopg2.extras import Json
 from config import DB_CONFIG
 
 
@@ -152,35 +154,114 @@ def verify_matches(club_ws_name):
     cursor.close()
     conn.close()
 
+def season_label_to_ws(label):
+    # Converts '2024/25' to '2024/2025'
+    parts = label.split('/')
+    start_year = parts[0]
+    end_year_short = parts[1]
+    end_year_full = start_year[:2] + end_year_short
+    return f"{start_year}/{end_year_full}"
+
+def load_events(club_ws_name, season_label):
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    # Get all match IDs and ws_game_ids for this club and season
+    cursor.execute("""
+        SELECT m.match_id, m.ws_game_id
+        FROM matches m
+        JOIN match_context mc ON m.match_id = mc.match_id
+        JOIN clubs c ON mc.club_id = c.club_id
+        JOIN seasons s ON m.season_id = s.season_id
+        WHERE c.ws_name = %s
+        AND s.label = %s
+    """, (club_ws_name, season_label))
+
+    matches = cursor.fetchall()
+    print(f"Found {len(matches)} matches for {club_ws_name} {season_label}")
+
+    ws = sd.WhoScored(
+        leagues="ENG-Premier League",
+        seasons=season_label_to_ws(season_label)
+    )
+
+    total_inserted = 0
+    total_skipped = 0
+
+    for match_id, ws_game_id in matches:
+        if not ws_game_id:
+            print(f"No ws_game_id for match_id {match_id}, skipping")
+            continue
+
+        # Check if events already loaded for this match
+        cursor.execute("""
+            SELECT COUNT(*) FROM match_events WHERE match_id = %s
+        """, (match_id,))
+        if cursor.fetchone()[0] > 0:
+            total_skipped += 1
+            continue
+
+        try:
+            events = ws.read_events(match_id=int(ws_game_id))
+        except Exception as e:
+            print(f"Failed to pull events for match {ws_game_id}: {e}")
+            continue
+
+        inserted = 0
+        for _, row in events.iterrows():
+            cursor.execute("""
+                INSERT INTO match_events (
+                    match_id, ws_event_id, player_id, team_id,
+                    period, minute, second, expanded_minute,
+                    type, outcome_type, x, y, end_x, end_y,
+                    goal_mouth_y, goal_mouth_z, blocked_x, blocked_y,
+                    is_touch, is_shot, is_goal, card_type,
+                    related_event_id, related_player_id, qualifiers
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
+            """, (
+                match_id,
+                safe_int(row.get('id')),
+                None,  # player_id - will link later
+                None,  # team_id - will link later
+                row.get('period'),
+                safe_int(row.get('minute')),
+                row.get('second') if not (isinstance(row.get('second'), float) and math.isnan(row.get('second'))) else None,
+                safe_int(row.get('expanded_minute')),
+                row.get('type'),
+                row.get('outcome_type'),
+                row.get('x') if not (isinstance(row.get('x'), float) and math.isnan(row.get('x'))) else None,
+                row.get('y') if not (isinstance(row.get('y'), float) and math.isnan(row.get('y'))) else None,
+                row.get('end_x') if not (isinstance(row.get('end_x'), float) and math.isnan(row.get('end_x'))) else None,
+                row.get('end_y') if not (isinstance(row.get('end_y'), float) and math.isnan(row.get('end_y'))) else None,
+                row.get('goal_mouth_y') if not (isinstance(row.get('goal_mouth_y'), float) and math.isnan(row.get('goal_mouth_y'))) else None,
+                row.get('goal_mouth_z') if not (isinstance(row.get('goal_mouth_z'), float) and math.isnan(row.get('goal_mouth_z'))) else None,
+                row.get('blocked_x') if not (isinstance(row.get('blocked_x'), float) and math.isnan(row.get('blocked_x'))) else None,
+                row.get('blocked_y') if not (isinstance(row.get('blocked_y'), float) and math.isnan(row.get('blocked_y'))) else None,
+                bool(row.get('is_touch')) if row.get('is_touch') is not None else None,
+                True if row.get('is_shot') is True else False,
+                True if row.get('is_goal') is True else False,
+                row.get('card_type') if row.get('card_type') not in [None, 'NaN', float('nan')] else None,
+                safe_int(row.get('related_event_id')),
+                safe_int(row.get('related_player_id')),
+                Json(row.get('qualifiers')) if row.get('qualifiers') is not None else None,
+            ))
+            inserted += 1
+
+        conn.commit()
+        total_inserted += inserted
+        print(f"Match {ws_game_id}: inserted {inserted} events")
+    cursor.close()
+    conn.close()
+    print(f"\nTotal inserted: {total_inserted}, Skipped matches: {total_skipped}")
+
 
 if __name__ == "__main__":
-    clubs_and_seasons = [
-        ("Arsenal", "2020/2021", "2021"),
-        ("Arsenal", "2021/2022", "2122"),
-        ("Arsenal", "2022/2023", "2223"),
-        ("Arsenal", "2023/2024", "2324"),
-        ("Arsenal", "2024/2025", "2425"),
-        ("Arsenal", "2025/2026", "2526"),
-        ("Manchester United", "2020/2021", "2021"),
-        ("Manchester United", "2021/2022", "2122"),
-        ("Manchester United", "2022/2023", "2223"),
-        ("Manchester United", "2023/2024", "2324"),
-        ("Manchester United", "2024/2025", "2425"),
-        ("Manchester United", "2025/2026", "2526"),
-        ("Chelsea", "2020/2021", "2021"),
-        ("Chelsea", "2021/2022", "2122"),
-        ("Chelsea", "2022/2023", "2223"),
-        ("Chelsea", "2023/2024", "2324"),
-        ("Chelsea", "2024/2025", "2425"),
-        ("Chelsea", "2025/2026", "2526"),
-        ("Brentford", "2020/2021", "2021"),
-        ("Brentford", "2021/2022", "2122"),
-        ("Brentford", "2022/2023", "2223"),
-        ("Brentford", "2023/2024", "2324"),
-        ("Brentford", "2024/2025", "2425"),
-        ("Brentford", "2025/2026", "2526"),
-    ]
+    load_events("Arsenal", "2024/25")
+    load_events("Manchester United", "2023/24")
+    load_events("Manchester United", "2024/25")
 
-    for club, season_label, ws_code in clubs_and_seasons:
-        print(f"\n--- {club} {season_label} ---")
-        load_matches(club, season_label, ws_code)
+

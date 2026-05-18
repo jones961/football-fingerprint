@@ -226,7 +226,43 @@ def debug_match_context():
     cursor.close()
     conn.close()
 
+def check_season_labels():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("SELECT label, ws_code FROM seasons")
+    for row in cursor.fetchall():
+        print(row)
+    cursor.close()
+    conn.close()
+
+def verify_events():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            c.name,
+            s.label,
+            COUNT(DISTINCT m.match_id) as matches,
+            COUNT(me.event_id) as events,
+            COUNT(DISTINCT me.type) as event_types
+        FROM match_events me
+        JOIN matches m ON me.match_id = m.match_id
+        JOIN match_context mc ON m.match_id = mc.match_id
+        JOIN clubs c ON mc.club_id = c.club_id
+        JOIN seasons s ON m.season_id = s.season_id
+        WHERE c.name IN ('Arsenal', 'Manchester United')
+        GROUP BY c.name, s.label
+        ORDER BY c.name, s.label
+    """)
+    for row in cursor.fetchall():
+        print(row)
+
+    cursor.close()
+    conn.close()
+
 if __name__ == "__main__":
-    reset_match_context()
-    backfill_match_context()
-    verify_match_context()
+    #reset_match_context()
+    #backfill_match_context()
+    #verify_match_context()
+    verify_events()
