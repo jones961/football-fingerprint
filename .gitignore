@@ -6,7 +6,6 @@ __pycache__/
 venv/
 
 # Environment and secrets
-config.py
 .env
 
 # Soccerdata cache
