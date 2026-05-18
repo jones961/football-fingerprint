@@ -175,6 +175,35 @@ def add_caretaker_column():
     conn.close()
     print("is_caretaker column added successfully")
 
+
+def add_match_context_table():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS match_context (
+            context_id      SERIAL PRIMARY KEY,
+            match_id        INTEGER NOT NULL REFERENCES matches(match_id),
+            club_id         INTEGER NOT NULL REFERENCES clubs(club_id),
+            appointment_id  INTEGER NOT NULL REFERENCES appointments(appointment_id),
+            venue           VARCHAR(10),
+            UNIQUE(match_id, club_id)
+        )
+    """)
+
+    cursor.execute("""
+        ALTER TABLE matches 
+        DROP COLUMN IF EXISTS appointment_id,
+        DROP COLUMN IF EXISTS venue
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("match_context table created, matches table updated")
+
+
 if __name__ == "__main__":
     create_tables()
     add_caretaker_column()
+    add_match_context_table()

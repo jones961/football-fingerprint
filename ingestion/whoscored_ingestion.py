@@ -1,6 +1,18 @@
 import soccerdata as sd
 import psycopg2
+import math
 from config import DB_CONFIG
+
+
+def safe_int(value):
+    if value is None:
+        return None
+    try:
+        if math.isnan(value):
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def get_club_id(cursor, ws_name):
@@ -101,8 +113,8 @@ def load_matches(club_ws_name, season_label, ws_code):
             opponent_id,
             match_date,
             'home' if is_home else 'away',
-            int(row['home_score']) if row['home_score'] is not None else None,
-            int(row['away_score']) if row['away_score'] is not None else None,
+            safe_int(row['home_score']),
+            safe_int(row['away_score']),
         ))
 
         if cursor.rowcount > 0:
@@ -113,6 +125,7 @@ def load_matches(club_ws_name, season_label, ws_code):
     conn.close()
 
     print(f"Inserted: {inserted} matches, Skipped: {skipped}")
+
 
 def verify_matches(club_ws_name):
     conn = psycopg2.connect(**DB_CONFIG)
@@ -139,6 +152,35 @@ def verify_matches(club_ws_name):
     cursor.close()
     conn.close()
 
+
 if __name__ == "__main__":
-    load_matches("Arsenal", "2024/2025", "2425")
-    verify_matches("Arsenal")
+    clubs_and_seasons = [
+        ("Arsenal", "2020/2021", "2021"),
+        ("Arsenal", "2021/2022", "2122"),
+        ("Arsenal", "2022/2023", "2223"),
+        ("Arsenal", "2023/2024", "2324"),
+        ("Arsenal", "2024/2025", "2425"),
+        ("Arsenal", "2025/2026", "2526"),
+        ("Manchester United", "2020/2021", "2021"),
+        ("Manchester United", "2021/2022", "2122"),
+        ("Manchester United", "2022/2023", "2223"),
+        ("Manchester United", "2023/2024", "2324"),
+        ("Manchester United", "2024/2025", "2425"),
+        ("Manchester United", "2025/2026", "2526"),
+        ("Chelsea", "2020/2021", "2021"),
+        ("Chelsea", "2021/2022", "2122"),
+        ("Chelsea", "2022/2023", "2223"),
+        ("Chelsea", "2023/2024", "2324"),
+        ("Chelsea", "2024/2025", "2425"),
+        ("Chelsea", "2025/2026", "2526"),
+        ("Brentford", "2020/2021", "2021"),
+        ("Brentford", "2021/2022", "2122"),
+        ("Brentford", "2022/2023", "2223"),
+        ("Brentford", "2023/2024", "2324"),
+        ("Brentford", "2024/2025", "2425"),
+        ("Brentford", "2025/2026", "2526"),
+    ]
+
+    for club, season_label, ws_code in clubs_and_seasons:
+        print(f"\n--- {club} {season_label} ---")
+        load_matches(club, season_label, ws_code)
