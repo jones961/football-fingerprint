@@ -344,9 +344,38 @@ def create_raw_tables():
     conn.close()
     print("Raw tables created successfully")
 
+
+def add_ws_team_id_to_clubs():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("""
+        ALTER TABLE clubs 
+        ADD COLUMN IF NOT EXISTS ws_team_id INTEGER
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("ws_team_id column added to clubs")
+
+
+def add_ws_event_name_to_clubs():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("""
+        ALTER TABLE clubs 
+        ADD COLUMN IF NOT EXISTS ws_event_name VARCHAR(100)
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("ws_event_name column added to clubs")
+
+
 if __name__ == "__main__":
     create_tables()
     add_caretaker_column()
     add_match_context_table()
     fix_match_events_constraints()
     create_raw_tables()
+    add_ws_team_id_to_clubs()
+    add_ws_event_name_to_clubs()

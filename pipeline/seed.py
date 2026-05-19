@@ -118,5 +118,89 @@ def seed_reference_tables():
     print("Reference tables seeded successfully")
 
 
+def populate_ws_team_ids():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    # Step 1 - handle known mismatches first
+    known_mappings = [
+        ('Man Utd', 32, 'Manchester United'),
+        ('Man City', 167, 'Manchester City'),
+        ('Sheff Utd', 163, 'Sheffield United'),
+    ]
+
+    for ws_event_name, ws_team_id, ws_name in known_mappings:
+        cursor.execute("""
+            UPDATE clubs
+            SET ws_team_id = %s,
+                ws_event_name = %s
+            WHERE ws_name = %s
+        """, (ws_team_id, ws_event_name, ws_name))
+        if cursor.rowcount > 0:
+            print(f"Manually mapped {ws_name} -> {ws_event_name} (ws_team_id: {ws_team_id})")
+
+    conn.commit()
+
+    # Step 2 - auto map remaining clubs from raw events
+    cursor.execute("""
+        SELECT DISTINCT team_name, ws_team_id
+        FROM raw_ws_events
+        WHERE team_name IS NOT NULL
+        AND ws_team_id IS NOT NULL
+        ORDER BY team_name
+    """)
+
+    mappings = cursor.fetchall()
+    print(f"Found {len(mappings)} team mappings in raw events")
+
+    updated = 0
+    not_found = []
+
+    for team_name, ws_team_id in mappings:
+        # Skip already mapped clubs
+        cursor.execute("""
+            SELECT club_id FROM clubs 
+            WHERE ws_team_id = %s
+        """, (ws_team_id,))
+        if cursor.fetchone():
+            continue
+
+        # Try matching on ws_name
+        cursor.execute("""
+            UPDATE clubs 
+            SET ws_team_id = %s,
+                ws_event_name = %s
+            WHERE ws_name = %s
+        """, (ws_team_id, team_name, team_name))
+
+        if cursor.rowcount > 0:
+            updated += 1
+            continue
+
+        # Try matching on name
+        cursor.execute("""
+            UPDATE clubs 
+            SET ws_team_id = %s,
+                ws_event_name = %s
+            WHERE name = %s
+        """, (ws_team_id, team_name, team_name))
+
+        if cursor.rowcount > 0:
+            updated += 1
+            continue
+
+        not_found.append((team_name, ws_team_id))
+
+    conn.commit()
+
+    print(f"Updated {updated} additional clubs with ws_team_id and ws_event_name")
+    if not_found:
+        print(f"Could not match: {not_found}")
+
+    cursor.close()
+    conn.close()
+
+
 if __name__ == "__main__":
     seed_reference_tables()
+    populate_ws_team_ids()
