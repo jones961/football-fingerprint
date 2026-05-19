@@ -215,8 +215,127 @@ def fix_match_events_constraints():
     conn.close()
     print("match_events constraints updated")
 
+
+def create_raw_tables():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("DROP TABLE IF EXISTS match_events")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS raw_ws_events (
+            id                  SERIAL PRIMARY KEY,
+            match_id            INTEGER NOT NULL REFERENCES matches(match_id),
+            ws_event_id         INTEGER,
+            ws_player_id        INTEGER,
+            ws_team_id          INTEGER,
+            player_name         VARCHAR(100),
+            team_name           VARCHAR(100),
+            period              VARCHAR(20),
+            minute              INTEGER,
+            second              FLOAT,
+            expanded_minute     INTEGER,
+            type                VARCHAR(50),
+            outcome_type        VARCHAR(50),
+            x                   FLOAT,
+            y                   FLOAT,
+            end_x               FLOAT,
+            end_y               FLOAT,
+            goal_mouth_y        FLOAT,
+            goal_mouth_z        FLOAT,
+            blocked_x           FLOAT,
+            blocked_y           FLOAT,
+            is_touch            BOOLEAN,
+            is_shot             BOOLEAN,
+            is_goal             BOOLEAN,
+            card_type           VARCHAR(20),
+            related_event_id    INTEGER,
+            related_player_id   INTEGER,
+            qualifiers          JSONB
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS raw_ws_matches (
+            id                  SERIAL PRIMARY KEY,
+            match_id            INTEGER REFERENCES matches(match_id),
+            ws_game_id          INTEGER UNIQUE,
+            ws_home_team_id     INTEGER,
+            ws_away_team_id     INTEGER,
+            home_team           VARCHAR(100),
+            away_team           VARCHAR(100),
+            season_label        VARCHAR(10),
+            match_date          TIMESTAMP WITH TIME ZONE,
+            home_score          INTEGER,
+            away_score          INTEGER
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS raw_espn_lineups (
+            id                  SERIAL PRIMARY KEY,
+            match_id            INTEGER REFERENCES matches(match_id),
+            espn_game_id        INTEGER,
+            espn_player_id      VARCHAR(50),
+            player_name         VARCHAR(100),
+            team_name           VARCHAR(100),
+            is_home             BOOLEAN,
+            position            VARCHAR(50),
+            formation_place     VARCHAR(10),
+            sub_in              VARCHAR(10),
+            sub_out             VARCHAR(10),
+            appearances         FLOAT,
+            fouls_committed     FLOAT,
+            fouls_suffered      FLOAT,
+            own_goals           FLOAT,
+            red_cards           FLOAT,
+            sub_ins             FLOAT,
+            yellow_cards        FLOAT,
+            goals_conceded      FLOAT,
+            saves               FLOAT,
+            shots_faced         FLOAT,
+            goal_assists        FLOAT,
+            shots_on_target     FLOAT,
+            total_goals         FLOAT,
+            total_shots         FLOAT,
+            offsides            FLOAT
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS raw_understat_player_stats (
+            id                  SERIAL PRIMARY KEY,
+            season_label        VARCHAR(10),
+            team_name           VARCHAR(100),
+            player_name         VARCHAR(100),
+            understat_player_id INTEGER,
+            understat_team_id   INTEGER,
+            position            VARCHAR(20),
+            matches             INTEGER,
+            minutes             INTEGER,
+            goals               INTEGER,
+            np_goals            INTEGER,
+            assists             INTEGER,
+            shots               INTEGER,
+            key_passes          INTEGER,
+            yellow_cards        INTEGER,
+            red_cards           INTEGER,
+            xg                  FLOAT,
+            np_xg               FLOAT,
+            xa                  FLOAT,
+            xg_chain            FLOAT,
+            xg_buildup          FLOAT
+        )
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("Raw tables created successfully")
+
 if __name__ == "__main__":
     create_tables()
     add_caretaker_column()
     add_match_context_table()
     fix_match_events_constraints()
+    create_raw_tables()

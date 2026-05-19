@@ -166,7 +166,6 @@ def load_events(club_ws_name, season_label):
     conn = psycopg2.connect(**DB_CONFIG)
     cursor = conn.cursor()
 
-    # Get all match IDs and ws_game_ids for this club and season
     cursor.execute("""
         SELECT m.match_id, m.ws_game_id
         FROM matches m
@@ -193,9 +192,8 @@ def load_events(club_ws_name, season_label):
             print(f"No ws_game_id for match_id {match_id}, skipping")
             continue
 
-        # Check if events already loaded for this match
         cursor.execute("""
-            SELECT COUNT(*) FROM match_events WHERE match_id = %s
+            SELECT COUNT(*) FROM raw_ws_events WHERE match_id = %s
         """, (match_id,))
         if cursor.fetchone()[0] > 0:
             total_skipped += 1
@@ -209,41 +207,66 @@ def load_events(club_ws_name, season_label):
 
         inserted = 0
         for _, row in events.iterrows():
+
+            def safe_float(val):
+                if val is None:
+                    return None
+                try:
+                    f = float(val)
+                    return None if math.isnan(f) else f
+                except (TypeError, ValueError):
+                    return None
+
+            def safe_bool(val):
+                if val is True:
+                    return True
+                if val is False:
+                    return False
+                return False
+
             cursor.execute("""
-                INSERT INTO match_events (
-                    match_id, ws_event_id, player_id, team_id,
+                INSERT INTO raw_ws_events (
+                    match_id, ws_event_id, ws_player_id, ws_team_id,
+                    player_name, team_name,
                     period, minute, second, expanded_minute,
-                    type, outcome_type, x, y, end_x, end_y,
-                    goal_mouth_y, goal_mouth_z, blocked_x, blocked_y,
-                    is_touch, is_shot, is_goal, card_type,
-                    related_event_id, related_player_id, qualifiers
+                    type, outcome_type,
+                    x, y, end_x, end_y,
+                    goal_mouth_y, goal_mouth_z,
+                    blocked_x, blocked_y,
+                    is_touch, is_shot, is_goal,
+                    card_type, related_event_id, related_player_id,
+                    qualifiers
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s
                 )
             """, (
                 match_id,
                 safe_int(row.get('id')),
-                None,  # player_id - will link later
-                None,  # team_id - will link later
+                safe_int(row.get('player_id')),
+                safe_int(row.get('team_id')),
+                row.get('player') if row.get('player') not in [None, float('nan')] else None,
+                row.get('team') if row.get('team') not in [None, float('nan')] else None,
                 row.get('period'),
                 safe_int(row.get('minute')),
-                row.get('second') if not (isinstance(row.get('second'), float) and math.isnan(row.get('second'))) else None,
+                safe_float(row.get('second')),
                 safe_int(row.get('expanded_minute')),
                 row.get('type'),
                 row.get('outcome_type'),
-                row.get('x') if not (isinstance(row.get('x'), float) and math.isnan(row.get('x'))) else None,
-                row.get('y') if not (isinstance(row.get('y'), float) and math.isnan(row.get('y'))) else None,
-                row.get('end_x') if not (isinstance(row.get('end_x'), float) and math.isnan(row.get('end_x'))) else None,
-                row.get('end_y') if not (isinstance(row.get('end_y'), float) and math.isnan(row.get('end_y'))) else None,
-                row.get('goal_mouth_y') if not (isinstance(row.get('goal_mouth_y'), float) and math.isnan(row.get('goal_mouth_y'))) else None,
-                row.get('goal_mouth_z') if not (isinstance(row.get('goal_mouth_z'), float) and math.isnan(row.get('goal_mouth_z'))) else None,
-                row.get('blocked_x') if not (isinstance(row.get('blocked_x'), float) and math.isnan(row.get('blocked_x'))) else None,
-                row.get('blocked_y') if not (isinstance(row.get('blocked_y'), float) and math.isnan(row.get('blocked_y'))) else None,
-                bool(row.get('is_touch')) if row.get('is_touch') is not None else None,
-                True if row.get('is_shot') is True else False,
-                True if row.get('is_goal') is True else False,
+                safe_float(row.get('x')),
+                safe_float(row.get('y')),
+                safe_float(row.get('end_x')),
+                safe_float(row.get('end_y')),
+                safe_float(row.get('goal_mouth_y')),
+                safe_float(row.get('goal_mouth_z')),
+                safe_float(row.get('blocked_x')),
+                safe_float(row.get('blocked_y')),
+                safe_bool(row.get('is_touch')),
+                safe_bool(row.get('is_shot')),
+                safe_bool(row.get('is_goal')),
                 row.get('card_type') if row.get('card_type') not in [None, 'NaN', float('nan')] else None,
                 safe_int(row.get('related_event_id')),
                 safe_int(row.get('related_player_id')),
@@ -254,10 +277,10 @@ def load_events(club_ws_name, season_label):
         conn.commit()
         total_inserted += inserted
         print(f"Match {ws_game_id}: inserted {inserted} events")
+
     cursor.close()
     conn.close()
     print(f"\nTotal inserted: {total_inserted}, Skipped matches: {total_skipped}")
-
 
 if __name__ == "__main__":
     load_events("Arsenal", "2024/25")
