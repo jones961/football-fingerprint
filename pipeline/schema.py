@@ -328,6 +328,17 @@ def create_raw_tables():
         )
     """)
 
+    cursor.execute("""
+            CREATE TABLE IF NOT EXISTS raw_espn_matches (
+                id              SERIAL PRIMARY KEY,
+                espn_game_id    INTEGER UNIQUE,
+                home_team       VARCHAR(100),
+                away_team       VARCHAR(100),
+                match_date      TIMESTAMP WITH TIME ZONE,
+                season_label    VARCHAR(10)
+            )
+        """)
+
     conn.commit()
     cursor.close()
     conn.close()
