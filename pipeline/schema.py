@@ -370,6 +370,118 @@ def add_ws_event_name_to_clubs():
     conn.close()
     print("ws_event_name column added to clubs")
 
+def create_clean_tables():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS clean_events (
+            id                  SERIAL PRIMARY KEY,
+            raw_event_id        INTEGER REFERENCES raw_ws_events(id),
+            match_id            INTEGER NOT NULL REFERENCES matches(match_id),
+            club_id             INTEGER REFERENCES clubs(club_id),
+            player_id           INTEGER REFERENCES players(player_id),
+            ws_player_id        INTEGER,
+            ws_team_id          INTEGER,
+            player_name         VARCHAR(100),
+            team_name           VARCHAR(100),
+            period              VARCHAR(20),
+            minute              INTEGER,
+            second              FLOAT,
+            expanded_minute     INTEGER,
+            type                VARCHAR(50),
+            outcome_type        VARCHAR(50),
+            is_successful       BOOLEAN,
+            x                   FLOAT,
+            y                   FLOAT,
+            end_x               FLOAT,
+            end_y               FLOAT,
+            goal_mouth_y        FLOAT,
+            goal_mouth_z        FLOAT,
+            blocked_x           FLOAT,
+            blocked_y           FLOAT,
+            is_touch            BOOLEAN,
+            is_shot             BOOLEAN,
+            is_goal             BOOLEAN,
+            card_type           VARCHAR(20),
+            related_event_id    INTEGER,
+            related_player_id   INTEGER,
+            qualifiers          JSONB
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS clean_lineups (
+            id                  SERIAL PRIMARY KEY,
+            raw_lineup_id       INTEGER REFERENCES raw_espn_lineups(id),
+            match_id            INTEGER REFERENCES matches(match_id),
+            club_id             INTEGER REFERENCES clubs(club_id),
+            player_id           INTEGER REFERENCES players(player_id),
+            player_name         VARCHAR(100),
+            team_name           VARCHAR(100),
+            is_home             BOOLEAN,
+            position            VARCHAR(50),
+            formation_place     INTEGER,
+            sub_in              VARCHAR(10),
+            sub_out             VARCHAR(10),
+            started             BOOLEAN,
+            minutes_played      INTEGER,
+            appearances         FLOAT,
+            fouls_committed     FLOAT,
+            fouls_suffered      FLOAT,
+            own_goals           FLOAT,
+            red_cards           FLOAT,
+            sub_ins             FLOAT,
+            yellow_cards        FLOAT,
+            goals_conceded      FLOAT,
+            saves               FLOAT,
+            shots_faced         FLOAT,
+            goal_assists        FLOAT,
+            shots_on_target     FLOAT,
+            total_goals         FLOAT,
+            total_shots         FLOAT,
+            offsides            FLOAT
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS clean_player_stats (
+            id                      SERIAL PRIMARY KEY,
+            raw_stat_id             INTEGER REFERENCES raw_understat_player_stats(id),
+            season_id               INTEGER REFERENCES seasons(season_id),
+            club_id                 INTEGER REFERENCES clubs(club_id),
+            player_id               INTEGER REFERENCES players(player_id),
+            appointment_id          INTEGER REFERENCES appointments(appointment_id),
+            player_name             VARCHAR(100),
+            team_name               VARCHAR(100),
+            position                VARCHAR(20),
+            matches                 INTEGER,
+            minutes                 INTEGER,
+            goals                   INTEGER,
+            np_goals                INTEGER,
+            assists                 INTEGER,
+            shots                   INTEGER,
+            key_passes              INTEGER,
+            yellow_cards            INTEGER,
+            red_cards               INTEGER,
+            xg                      FLOAT,
+            np_xg                   FLOAT,
+            xa                      FLOAT,
+            xg_chain                FLOAT,
+            xg_buildup              FLOAT,
+            xg_per_90               FLOAT,
+            np_xg_per_90            FLOAT,
+            xa_per_90               FLOAT,
+            xg_chain_per_90         FLOAT,
+            xg_buildup_per_90       FLOAT
+        )
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("Clean tables created successfully")
+
 
 if __name__ == "__main__":
     create_tables()
@@ -379,3 +491,4 @@ if __name__ == "__main__":
     create_raw_tables()
     add_ws_team_id_to_clubs()
     add_ws_event_name_to_clubs()
+    create_clean_tables()
