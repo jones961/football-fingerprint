@@ -200,7 +200,32 @@ def populate_ws_team_ids():
     cursor.close()
     conn.close()
 
+def fix_understat_names():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    corrections = [
+        ('Wolves', 'Wolverhampton Wanderers'),
+        ('Newcastle', 'Newcastle United'),
+        ('Manchester United', 'Manchester United'),
+        ('Manchester City', 'Manchester City'),
+        ('Nottingham Forest', 'Nottingham Forest'),
+        ('Tottenham', 'Tottenham'),
+    ]
+
+    for ws_name, understat_name in corrections:
+        cursor.execute("""
+            UPDATE clubs SET understat_name = %s
+            WHERE ws_name = %s
+        """, (understat_name, ws_name))
+        if cursor.rowcount > 0:
+            print(f"Updated understat_name for {ws_name} to {understat_name}")
+
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 if __name__ == "__main__":
     seed_reference_tables()
     populate_ws_team_ids()
+    fix_understat_names()
