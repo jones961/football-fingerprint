@@ -482,6 +482,53 @@ def create_clean_tables():
     conn.close()
     print("Clean tables created successfully")
 
+def create_processed_tables():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS proc_sequences (
+            id                  SERIAL PRIMARY KEY,
+            match_id            INTEGER NOT NULL REFERENCES matches(match_id),
+            club_id             INTEGER REFERENCES clubs(club_id),
+            sequence_number     INTEGER NOT NULL,
+            period              VARCHAR(20),
+            start_minute        INTEGER,
+            start_second        FLOAT,
+            end_minute          INTEGER,
+            end_second          FLOAT,
+            event_count         INTEGER,
+            start_x             FLOAT,
+            start_y             FLOAT,
+            end_x               FLOAT,
+            end_y               FLOAT,
+            x_progression       FLOAT,
+            start_zone          VARCHAR(20),
+            end_zone            VARCHAR(20),
+            ended_with_shot     BOOLEAN,
+            ended_with_goal     BOOLEAN,
+            ended_with_loss     BOOLEAN,
+            max_x               FLOAT,
+            avg_x               FLOAT,
+            width               FLOAT,
+            UNIQUE(match_id, club_id, sequence_number)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS proc_sequence_events (
+            id              SERIAL PRIMARY KEY,
+            sequence_id     INTEGER NOT NULL REFERENCES proc_sequences(id),
+            clean_event_id  INTEGER NOT NULL REFERENCES clean_events(id),
+            position        INTEGER NOT NULL
+        )
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("Processed tables created successfully")
+
 
 if __name__ == "__main__":
     create_tables()
@@ -492,3 +539,4 @@ if __name__ == "__main__":
     add_ws_team_id_to_clubs()
     add_ws_event_name_to_clubs()
     create_clean_tables()
+    create_processed_tables()
