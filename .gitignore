@@ -21,3 +21,6 @@ soccerdata/
 # Selenium
 *.lock
 driver_fixing.lock
+
+#Special env
+venv312/
