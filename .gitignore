@@ -22,5 +22,8 @@ soccerdata/
 *.lock
 driver_fixing.lock
 
-#Special env
+# Special env
 venv312/
+
+# Generated outputs
+outputs/

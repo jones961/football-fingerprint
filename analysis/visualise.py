@@ -61,6 +61,27 @@ def get_manager_sequence_ends(appointment_id):
         WHERE a.appointment_id = %s
         AND ps.end_x IS NOT NULL
         AND ps.end_y IS NOT NULL
+        AND ps.end_event_type NOT IN (
+            'KeeperPickup', 'KeeperSweeper', 'Save', 
+            'Claim', 'Punch', 'Clearance'
+        )
+    """, (appointment_id,))
+
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return [r[0] for r in rows], [r[1] for r in rows]
+
+    cursor.execute("""
+        SELECT ps.end_x, ps.end_y
+        FROM proc_sequences ps
+        JOIN match_context mc ON ps.match_id = mc.match_id
+            AND mc.club_id = ps.club_id
+        JOIN appointments a ON mc.appointment_id = a.appointment_id
+        WHERE a.appointment_id = %s
+        AND ps.end_x IS NOT NULL
+        AND ps.end_y IS NOT NULL
     """, (appointment_id,))
 
     rows = cursor.fetchall()
@@ -121,7 +142,7 @@ def plot_manager_fingerprint(manager_data, save_path=None):
         )
 
     ax_end.set_title(
-        'Where possession ends',
+        'Where attacking sequences end',
         color='white', fontsize=11, pad=8
     )
 

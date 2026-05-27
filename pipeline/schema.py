@@ -529,6 +529,18 @@ def create_processed_tables():
     conn.close()
     print("Processed tables created successfully")
 
+def add_end_event_type_to_sequences():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("""
+        ALTER TABLE proc_sequences
+        ADD COLUMN IF NOT EXISTS end_event_type VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS start_event_type VARCHAR(50)
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("end_event_type and start_event_type columns added to proc_sequences")
 
 if __name__ == "__main__":
     create_tables()
@@ -540,3 +552,4 @@ if __name__ == "__main__":
     add_ws_event_name_to_clubs()
     create_clean_tables()
     create_processed_tables()
+    add_end_event_type_to_sequences()

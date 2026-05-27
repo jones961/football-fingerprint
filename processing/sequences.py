@@ -30,6 +30,14 @@ EXCLUDED_TYPES = {
     'OffsideProvoked',
 }
 
+KEEPER_END_TYPES = {
+    'KeeperPickup',
+    'KeeperSweeper',
+    'Save',
+    'Claim',
+    'Punch',
+}
+
 
 def classify_zone(x):
     if x is None:
@@ -126,7 +134,6 @@ def store_sequences(match_id, sequences):
     conn = psycopg2.connect(**DB_CONFIG)
     cursor = conn.cursor()
 
-    # Check if already stored
     cursor.execute("""
         SELECT COUNT(*) FROM proc_sequences WHERE match_id = %s
     """, (match_id,))
@@ -151,7 +158,6 @@ def store_sequences(match_id, sequences):
         end_second = seq[-1]['second']
         event_count = len(seq)
 
-        # Spatial metrics
         x_values = [e['x'] for e in seq if e['x'] is not None]
         y_values = [e['y'] for e in seq if e['y'] is not None]
 
@@ -169,8 +175,9 @@ def store_sequences(match_id, sequences):
         start_zone = classify_zone(start_x)
         end_zone = classify_zone(end_x)
 
-        # Outcome flags
         last_type = seq[-1]['event_type']
+        first_type = seq[0]['event_type']
+
         ended_with_shot = last_type in {'SavedShot', 'MissedShots'}
         ended_with_goal = last_type == 'Goal'
         ended_with_loss = not ended_with_shot and not ended_with_goal
@@ -182,11 +189,12 @@ def store_sequences(match_id, sequences):
                 event_count, start_x, start_y, end_x, end_y,
                 x_progression, start_zone, end_zone,
                 ended_with_shot, ended_with_goal, ended_with_loss,
-                max_x, avg_x, width
+                max_x, avg_x, width,
+                start_event_type, end_event_type
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s
             )
             ON CONFLICT (match_id, club_id, sequence_number) DO NOTHING
             RETURNING id
@@ -196,7 +204,8 @@ def store_sequences(match_id, sequences):
             event_count, start_x, start_y, end_x, end_y,
             x_progression, start_zone, end_zone,
             ended_with_shot, ended_with_goal, ended_with_loss,
-            max_x, avg_x, width
+            max_x, avg_x, width,
+            first_type, last_type
         ))
 
         result = cursor.fetchone()
@@ -205,7 +214,6 @@ def store_sequences(match_id, sequences):
 
         sequence_id = result[0]
 
-        # Store sequence events
         for position, event in enumerate(seq):
             cursor.execute("""
                 INSERT INTO proc_sequence_events (
@@ -219,6 +227,60 @@ def store_sequences(match_id, sequences):
     cursor.close()
     conn.close()
     print(f"Stored {inserted} sequences for match {match_id}")
+
+
+def backfill_event_types():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id FROM proc_sequences
+        WHERE start_event_type IS NULL
+        OR end_event_type IS NULL
+    """)
+    sequence_ids = [row[0] for row in cursor.fetchall()]
+    print(f"Backfilling {len(sequence_ids)} sequences")
+
+    updated = 0
+
+    for seq_id in sequence_ids:
+        cursor.execute("""
+            SELECT ce.type
+            FROM proc_sequence_events pse
+            JOIN clean_events ce ON pse.clean_event_id = ce.id
+            WHERE pse.sequence_id = %s
+            ORDER BY pse.position ASC
+            LIMIT 1
+        """, (seq_id,))
+        first = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT ce.type
+            FROM proc_sequence_events pse
+            JOIN clean_events ce ON pse.clean_event_id = ce.id
+            WHERE pse.sequence_id = %s
+            ORDER BY pse.position DESC
+            LIMIT 1
+        """, (seq_id,))
+        last = cursor.fetchone()
+
+        if first and last:
+            cursor.execute("""
+                UPDATE proc_sequences
+                SET start_event_type = %s,
+                    end_event_type = %s
+                WHERE id = %s
+            """, (first[0], last[0], seq_id))
+            updated += 1
+
+        if updated % 1000 == 0 and updated > 0:
+            conn.commit()
+            print(f"Updated {updated} sequences...")
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"Backfill complete. Updated {updated} sequences")
 
 
 def process_all_matches():
@@ -241,4 +303,4 @@ def process_all_matches():
 
 
 if __name__ == "__main__":
-    process_all_matches()
+    backfill_event_types()
