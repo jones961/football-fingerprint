@@ -575,6 +575,31 @@ def create_understat_match_stats_table():
     print("raw_understat_player_match_stats table created")
 
 
+def create_understat_schedule_table():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS raw_understat_schedule (
+            id                  SERIAL PRIMARY KEY,
+            season_label        VARCHAR(10),
+            understat_game_id   INTEGER UNIQUE,
+            home_team           VARCHAR(100),
+            away_team           VARCHAR(100),
+            match_date          TIMESTAMP WITH TIME ZONE,
+            home_goals          INTEGER,
+            away_goals          INTEGER,
+            home_xg             FLOAT,
+            away_xg             FLOAT
+        )
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("raw_understat_schedule table created")
+
+
 if __name__ == "__main__":
     create_tables()
     add_caretaker_column()
@@ -587,3 +612,4 @@ if __name__ == "__main__":
     create_processed_tables()
     add_end_event_type_to_sequences()
     create_understat_match_stats_table()
+    create_understat_schedule_table()

@@ -27,3 +27,6 @@ venv312/
 
 # Generated outputs
 outputs/
+
+#main
+main.py

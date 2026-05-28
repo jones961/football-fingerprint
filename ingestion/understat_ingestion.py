@@ -194,5 +194,65 @@ def load_all_understat_match_stats():
         print(f"Pulling {season_label}...")
         load_understat_player_match_stats(season_label)
 
+def load_understat_schedule(season_label):
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    understat = sd.Understat(
+        leagues="ENG-Premier League",
+        seasons=season_label
+    )
+
+    schedule = understat.read_schedule()
+
+    inserted = 0
+    skipped = 0
+
+    for _, row in schedule.reset_index().iterrows():
+        cursor.execute("""
+                INSERT INTO raw_understat_schedule (
+                    season_label, understat_game_id,
+                    home_team, away_team, match_date,
+                    home_goals, away_goals,
+                    home_xg, away_xg
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (understat_game_id) DO NOTHING
+            """, (
+            season_label,
+            safe_int(row.get('game_id')),
+            row.get('home_team'),
+            row.get('away_team'),
+            row.get('date'),
+            safe_int(row.get('home_goals')),
+            safe_int(row.get('away_goals')),
+            safe_float(row.get('home_xg')),
+            safe_float(row.get('away_xg')),
+        ))
+
+        if cursor.rowcount > 0:
+            inserted += 1
+        else:
+            skipped += 1
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"Season {season_label}: inserted {inserted}, skipped {skipped}")
+
+
+def load_all_understat_schedules():
+    seasons = [
+        "2020/2021",
+        "2021/2022",
+        "2022/2023",
+        "2023/2024",
+        "2024/2025",
+        "2025/2026",
+    ]
+    for season_label in seasons:
+        print(f"Pulling schedule {season_label}...")
+        load_understat_schedule(season_label)
+
+
 if __name__ == "__main__":
-    load_all_understat_stats()
+    load_all_understat_schedules()
