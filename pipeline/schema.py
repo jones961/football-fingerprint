@@ -613,6 +613,42 @@ def add_understat_game_id_to_matches():
     print("understat_game_id added to matches")
 
 
+def create_clean_player_match_stats_table():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS clean_player_match_stats (
+            id                  SERIAL PRIMARY KEY,
+            raw_stat_id         INTEGER REFERENCES raw_understat_player_match_stats(id),
+            match_id            INTEGER REFERENCES matches(match_id),
+            club_id             INTEGER REFERENCES clubs(club_id),
+            player_id           INTEGER REFERENCES players(player_id),
+            appointment_id      INTEGER REFERENCES appointments(appointment_id),
+            player_name         VARCHAR(100),
+            team_name           VARCHAR(100),
+            position            VARCHAR(10),
+            minutes             INTEGER,
+            goals               INTEGER,
+            own_goals           INTEGER,
+            shots               INTEGER,
+            xg                  FLOAT,
+            xa                  FLOAT,
+            xg_chain            FLOAT,
+            xg_buildup          FLOAT,
+            xg_per_90           FLOAT,
+            xa_per_90           FLOAT,
+            xg_chain_per_90     FLOAT,
+            xg_buildup_per_90   FLOAT
+        )
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("clean_player_match_stats table created")
+
+
 if __name__ == "__main__":
     create_tables()
     add_caretaker_column()
@@ -627,3 +663,4 @@ if __name__ == "__main__":
     create_understat_match_stats_table()
     create_understat_schedule_table()
     add_understat_game_id_to_matches()
+    create_clean_player_match_stats_table()
