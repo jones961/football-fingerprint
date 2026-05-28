@@ -542,6 +542,39 @@ def add_end_event_type_to_sequences():
     conn.close()
     print("end_event_type and start_event_type columns added to proc_sequences")
 
+def create_understat_match_stats_table():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS raw_understat_player_match_stats (
+            id                  SERIAL PRIMARY KEY,
+            season_label        VARCHAR(10),
+            understat_game_id   INTEGER,
+            understat_team_id   INTEGER,
+            understat_player_id INTEGER,
+            player_name         VARCHAR(100),
+            team_name           VARCHAR(100),
+            position            VARCHAR(10),
+            position_id         INTEGER,
+            minutes             INTEGER,
+            goals               INTEGER,
+            own_goals           INTEGER,
+            shots               INTEGER,
+            xg                  FLOAT,
+            xa                  FLOAT,
+            xg_chain            FLOAT,
+            xg_buildup          FLOAT,
+            UNIQUE(season_label, understat_game_id, understat_player_id)
+        )
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("raw_understat_player_match_stats table created")
+
+
 if __name__ == "__main__":
     create_tables()
     add_caretaker_column()
@@ -553,3 +586,4 @@ if __name__ == "__main__":
     create_clean_tables()
     create_processed_tables()
     add_end_event_type_to_sequences()
+    create_understat_match_stats_table()
