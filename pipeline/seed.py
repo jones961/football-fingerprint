@@ -225,7 +225,65 @@ def fix_understat_names():
     cursor.close()
     conn.close()
 
+
+def populate_understat_names():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    understat_name_map = [
+        ('Arsenal', 'Arsenal'),
+        ('Aston Villa', 'Aston Villa'),
+        ('Bournemouth', 'Bournemouth'),
+        ('Brentford', 'Brentford'),
+        ('Brighton', 'Brighton'),
+        ('Burnley', 'Burnley'),
+        ('Chelsea', 'Chelsea'),
+        ('Crystal Palace', 'Crystal Palace'),
+        ('Everton', 'Everton'),
+        ('Fulham', 'Fulham'),
+        ('Ipswich', 'Ipswich'),
+        ('Leeds', 'Leeds'),
+        ('Leicester', 'Leicester'),
+        ('Liverpool', 'Liverpool'),
+        ('Luton', 'Luton'),
+        ('Manchester City', 'Manchester City'),
+        ('Manchester United', 'Manchester United'),
+        ('Newcastle', 'Newcastle United'),
+        ('Norwich', 'Norwich'),
+        ('Nottingham Forest', 'Nottingham Forest'),
+        ('Sheffield United', 'Sheffield United'),
+        ('Southampton', 'Southampton'),
+        ('Sunderland', 'Sunderland'),
+        ('Tottenham', 'Tottenham'),
+        ('Watford', 'Watford'),
+        ('West Bromwich Albion', 'West Bromwich Albion'),
+        ('West Ham', 'West Ham'),
+        ('Wolves', 'Wolverhampton Wanderers'),
+    ]
+
+    updated = 0
+    for name, understat_name in understat_name_map:
+        cursor.execute("""
+            UPDATE clubs SET understat_name = %s
+            WHERE name = %s
+        """, (understat_name, name))
+        if cursor.rowcount > 0:
+            updated += 1
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"Updated understat_name for {updated} clubs")
+
+
 if __name__ == "__main__":
     seed_reference_tables()
     populate_ws_team_ids()
     fix_understat_names()
+    populate_understat_names()
+
+if __name__ == "__main__":
+    seed_reference_tables()
+    populate_ws_team_ids()
+    fix_understat_names()
+    populate_understat_names()

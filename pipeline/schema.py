@@ -600,6 +600,19 @@ def create_understat_schedule_table():
     print("raw_understat_schedule table created")
 
 
+def add_understat_game_id_to_matches():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("""
+        ALTER TABLE matches
+        ADD COLUMN IF NOT EXISTS understat_game_id INTEGER
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("understat_game_id added to matches")
+
+
 if __name__ == "__main__":
     create_tables()
     add_caretaker_column()
@@ -613,3 +626,4 @@ if __name__ == "__main__":
     add_end_event_type_to_sequences()
     create_understat_match_stats_table()
     create_understat_schedule_table()
+    add_understat_game_id_to_matches()
