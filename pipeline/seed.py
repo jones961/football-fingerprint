@@ -276,14 +276,58 @@ def populate_understat_names():
     print(f"Updated understat_name for {updated} clubs")
 
 
-if __name__ == "__main__":
-    seed_reference_tables()
-    populate_ws_team_ids()
-    fix_understat_names()
-    populate_understat_names()
+def populate_espn_names():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    espn_name_map = [
+        ('Arsenal', 'Arsenal'),
+        ('Aston Villa', 'Aston Villa'),
+        ('Bournemouth', 'AFC Bournemouth'),
+        ('Brentford', 'Brentford'),
+        ('Brighton', 'Brighton & Hove Albion'),
+        ('Burnley', 'Burnley'),
+        ('Chelsea', 'Chelsea'),
+        ('Crystal Palace', 'Crystal Palace'),
+        ('Everton', 'Everton'),
+        ('Fulham', 'Fulham'),
+        ('Ipswich', 'Ipswich Town'),
+        ('Leeds', 'Leeds United'),
+        ('Leicester', 'Leicester City'),
+        ('Liverpool', 'Liverpool'),
+        ('Luton', 'Luton Town'),
+        ('Manchester City', 'Manchester City'),
+        ('Manchester United', 'Manchester United'),
+        ('Newcastle', 'Newcastle United'),
+        ('Norwich', 'Norwich City'),
+        ('Nottingham Forest', 'Nottingham Forest'),
+        ('Sheffield United', 'Sheffield United'),
+        ('Southampton', 'Southampton'),
+        ('Sunderland', 'Sunderland'),
+        ('Tottenham', 'Tottenham Hotspur'),
+        ('Watford', 'Watford'),
+        ('West Ham', 'West Ham United'),
+        ('Wolves', 'Wolverhampton Wanderers'),
+    ]
+
+    updated = 0
+    for name, espn_name in espn_name_map:
+        cursor.execute("""
+            UPDATE clubs SET espn_name = %s
+            WHERE name = %s
+        """, (espn_name, name))
+        if cursor.rowcount > 0:
+            updated += 1
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"Updated espn_name for {updated} clubs")
+
 
 if __name__ == "__main__":
     seed_reference_tables()
     populate_ws_team_ids()
     fix_understat_names()
     populate_understat_names()
+    populate_espn_names()

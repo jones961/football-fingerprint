@@ -89,5 +89,89 @@ def match_understat_to_matches():
     print(f"\nMatched: {matched} out of {len(schedule_rows)}")
 
 
+def match_espn_to_matches():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            espn_game_id,
+            home_team,
+            away_team,
+            match_date,
+            season_label
+        FROM raw_espn_matches
+        WHERE espn_game_id IS NOT NULL
+    """)
+
+    schedule_rows = cursor.fetchall()
+    print(f"Processing {len(schedule_rows)} ESPN schedule records")
+
+    matched = 0
+    unmatched = []
+
+    for espn_game_id, home_team, away_team, match_date, season_label in schedule_rows:
+
+        # Already matched
+        cursor.execute("""
+            SELECT match_id FROM matches
+            WHERE espn_game_id = %s
+        """, (espn_game_id,))
+        if cursor.fetchone():
+            matched += 1
+            continue
+
+        match_date_only = match_date.date() if hasattr(match_date, 'date') else match_date
+
+        # Match by date and home team name
+        cursor.execute("""
+            SELECT DISTINCT m.match_id
+            FROM matches m
+            JOIN match_context mc ON m.match_id = mc.match_id
+            JOIN clubs tracked_club ON mc.club_id = tracked_club.club_id
+            JOIN clubs opp_club ON m.opponent_id = opp_club.club_id
+            WHERE DATE(m.match_date) = %s
+            AND (
+                (mc.venue = 'home' AND (
+                    tracked_club.espn_name = %s
+                    OR tracked_club.name = %s
+                ))
+                OR
+                (mc.venue = 'away' AND (
+                    opp_club.espn_name = %s
+                    OR opp_club.name = %s
+                ))
+            )
+        """, (
+            match_date_only,
+            home_team, home_team,
+            home_team, home_team
+        ))
+
+        result = cursor.fetchone()
+
+        if result:
+            match_id = result[0]
+            cursor.execute("""
+                UPDATE matches
+                SET espn_game_id = %s
+                WHERE match_id = %s
+            """, (espn_game_id, match_id))
+            matched += 1
+        else:
+            unmatched.append((espn_game_id, home_team, away_team, match_date_only))
+
+    conn.commit()
+
+    if unmatched:
+        print(f"\nUnmatched records: {len(unmatched)}")
+        for row in unmatched[:10]:
+            print(f"  {row}")
+
+    cursor.close()
+    conn.close()
+    print(f"\nMatched: {matched} out of {len(schedule_rows)}")
+
+
 if __name__ == "__main__":
-    match_understat_to_matches()
+    match_espn_to_matches()
