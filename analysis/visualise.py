@@ -5,7 +5,7 @@ import numpy as np
 import os
 from mplsoccer import Pitch
 from config import DB_CONFIG
-
+from fingerprints import create_manager_fingerprint_view, create_player_fingerprint_view
 
 def get_manager_fingerprint_data(manager_name=None):
     conn = psycopg2.connect(**DB_CONFIG)
@@ -216,5 +216,197 @@ def plot_all_managers(save_dir=None):
         print(f"Plotting {manager['manager_name']} at {manager['club_name']}...")
         plot_manager_fingerprint(manager, save_path=filename)
 
+
+def get_player_spatial_data(player_id, appointment_id):
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT ce.x, ce.y, ce.type
+        FROM clean_events ce
+        JOIN match_context mc ON ce.match_id = mc.match_id
+            AND ce.club_id = mc.club_id
+        WHERE ce.player_id = %s
+        AND mc.appointment_id = %s
+        AND ce.period IN ('FirstHalf', 'SecondHalf')
+        AND ce.x IS NOT NULL
+        AND ce.y IS NOT NULL
+        AND NOT (
+            ce.x >= 99 AND (ce.y <= 1 OR ce.y >= 99)
+        )
+        AND NOT (
+            ce.x <= 1 AND (ce.y <= 1 OR ce.y >= 99)
+        )
+    """, (player_id, appointment_id))
+
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    x = [r[0] for r in rows]
+    y = [r[1] for r in rows]
+    types = [r[2] for r in rows]
+    return x, y, types
+
+
+def plot_player_fingerprint(player_data, save_path=None):
+    import os
+
+    pitch = Pitch(
+        pitch_type='custom',
+        pitch_length=100,
+        pitch_width=100,
+        pitch_color='#1a1a2e',
+        line_color='#ffffff',
+        line_alpha=0.7,
+    )
+
+    fig, ax = pitch.draw(figsize=(12, 8))
+
+    player_name = player_data['player_name']
+    manager_name = player_data['manager_name']
+    club_name = player_data['club_name']
+    player_id = player_data['player_id']
+    appointment_id = player_data['appointment_id']
+
+    x, y, types = get_player_spatial_data(player_id, appointment_id)
+
+    # Full action heatmap
+    if x:
+        pitch.kdeplot(
+            x, y,
+            ax=ax,
+            cmap='Reds',
+            fill=True,
+            alpha=0.6,
+            levels=10,
+            zorder=1,
+        )
+
+    # Overlay defensive actions in a different colour
+    def_x = [x[i] for i, t in enumerate(types)
+              if t in ('Tackle', 'Interception', 'BallRecovery', 'Challenge')]
+    def_y = [y[i] for i, t in enumerate(types)
+              if t in ('Tackle', 'Interception', 'BallRecovery', 'Challenge')]
+
+    if len(def_x) > 10:
+        pitch.kdeplot(
+            def_x, def_y,
+            ax=ax,
+            cmap='Blues',
+            fill=True,
+            alpha=0.4,
+            levels=5,
+            zorder=2,
+        )
+
+    # Third zone lines
+    for x_line in [33, 67]:
+        ax.axvline(
+            x=x_line, color='white',
+            linestyle='--', alpha=0.3, lw=1
+        )
+
+    # Average position dot
+    if x:
+        avg_x = sum(x) / len(x)
+        avg_y = sum(y) / len(y)
+        ax.scatter(
+            avg_x, avg_y,
+            color='yellow', s=200,
+            zorder=6, label=f'Avg position'
+        )
+
+    date_from = player_data['date_from'].strftime('%b %Y')
+    date_to = player_data['date_to'].strftime('%b %Y') if player_data['date_to'] else 'Present'
+
+    fig.suptitle(
+        f'{player_name}  —  {club_name} under {manager_name}',
+        fontsize=14, fontweight='bold', color='white', y=0.98
+    )
+
+    minutes = player_data['total_minutes']
+    matches = player_data['matches']
+
+    stats_text = (
+        f"Mins: {minutes}  |  "
+        f"Matches: {matches}  |  "
+        f"Avg X: {player_data['avg_x']}  |  "
+        f"Final 3rd: {player_data['pct_actions_final_third']}%  |  "
+        f"Prog passes: {player_data['pct_progressive_passes']}%  |  "
+        f"xG chain/90: {player_data['avg_xg_chain_per_90']}  |  "
+        f"xG/90: {player_data['avg_xg_per_90']}"
+    )
+
+    fig.text(
+        0.5, 0.02, stats_text,
+        ha='center', fontsize=9, color='white',
+        bbox=dict(
+            boxstyle='round',
+            facecolor='#0d0d1a',
+            alpha=0.9,
+            edgecolor='white',
+            linewidth=0.5
+        )
+    )
+
+    ax.legend(
+        loc='upper right',
+        facecolor='#1a1a2e',
+        labelcolor='white',
+        fontsize=9,
+        framealpha=0.8,
+    )
+
+    fig.patch.set_facecolor('#1a1a2e')
+    plt.tight_layout(rect=[0, 0.06, 1, 0.95])
+
+    if save_path:
+        plt.savefig(
+            save_path, dpi=150,
+            bbox_inches='tight',
+            facecolor='#1a1a2e'
+        )
+        print(f"Saved to {save_path}")
+    else:
+        plt.show()
+
+    plt.close()
+    return fig
+
+
+def plot_squad_fingerprints(manager_name, save_dir=None):
+    import os
+    if save_dir is None:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        save_dir = os.path.join(project_root, 'outputs', 'players')
+    os.makedirs(save_dir, exist_ok=True)
+
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM player_fingerprint
+        WHERE manager_name = %s
+        AND total_minutes >= 900
+        ORDER BY total_minutes DESC
+    """, (manager_name,))
+
+    columns = [desc[0] for desc in cursor.description]
+    players = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+
+    print(f"Plotting {len(players)} players under {manager_name}")
+
+    for player in players:
+        safe_name = player['player_name'].replace(' ', '_')
+        filename = os.path.join(save_dir, f"{safe_name}.png")
+        print(f"Plotting {player['player_name']}...")
+        plot_player_fingerprint(player, save_path=filename)
+
+
 if __name__ == "__main__":
-    plot_all_managers()
+    create_manager_fingerprint_view()
+    create_player_fingerprint_view()
+    plot_squad_fingerprints("Mikel Arteta")
