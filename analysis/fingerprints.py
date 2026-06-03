@@ -425,8 +425,196 @@ def query_role_demand(manager_name, formation_place=None):
     conn.close()
 
 
+def create_player_deviation_view():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("DROP VIEW IF EXISTS player_deviation CASCADE")
+
+    cursor.execute("""
+        CREATE VIEW player_deviation AS
+        WITH player_match_metrics AS (
+            SELECT
+                cl.player_id,
+                cl.match_id,
+                cl.appointment_id,
+                cl.formation_place,
+                cl.role_group,
+                cl.minutes_played,
+                pps.avg_x,
+                pps.avg_y,
+                pps.pct_final_third,
+                pps.pct_defensive_third,
+                pps.pct_high_defensive,
+                pps.pct_progressive_passes,
+                cpm.xg_chain,
+                cpm.xg_buildup,
+                cpm.xg,
+                cpm.xa
+            FROM clean_lineups cl
+            JOIN clean_player_match_stats cpm
+                ON cl.player_id = cpm.player_id
+                AND cl.match_id = cpm.match_id
+            JOIN (
+                SELECT
+                    mc.appointment_id,
+                    ce.player_id,
+                    ce.match_id,
+                    AVG(ce.x) as avg_x,
+                    AVG(ce.y) as avg_y,
+                    100.0 * COUNT(*) FILTER (WHERE ce.x > 67)
+                        / NULLIF(COUNT(*), 0) as pct_final_third,
+                    100.0 * COUNT(*) FILTER (WHERE ce.x < 33)
+                        / NULLIF(COUNT(*), 0) as pct_defensive_third,
+                    100.0 * COUNT(*) FILTER (
+                        WHERE ce.type IN ('Tackle','Interception',
+                                         'BallRecovery','Challenge')
+                        AND ce.x > 67
+                    ) / NULLIF(COUNT(*), 0) as pct_high_defensive,
+                    100.0 * COUNT(*) FILTER (
+                        WHERE ce.type = 'Pass'
+                        AND ce.end_x > ce.x
+                        AND ce.end_x IS NOT NULL
+                    ) / NULLIF(
+                        COUNT(*) FILTER (WHERE ce.type = 'Pass'), 0
+                    ) as pct_progressive_passes
+                FROM clean_events ce
+                JOIN match_context mc ON ce.match_id = mc.match_id
+                    AND ce.club_id = mc.club_id
+                WHERE ce.player_id IS NOT NULL
+                AND ce.period IN ('FirstHalf', 'SecondHalf')
+                AND NOT (ce.x >= 99 AND (ce.y <= 1 OR ce.y >= 99))
+                AND NOT (ce.x <= 1 AND (ce.y <= 1 OR ce.y >= 99))
+                AND ce.type NOT IN ('CornerAwarded')
+                GROUP BY mc.appointment_id, ce.player_id, ce.match_id
+            ) pps ON cl.appointment_id = pps.appointment_id
+                AND cl.player_id = pps.player_id
+                AND cl.match_id = pps.match_id
+            WHERE cl.minutes_played > 0
+            AND cl.formation_place IS NOT NULL
+            AND cl.appointment_id IS NOT NULL
+        ),
+        player_vs_demand AS (
+            SELECT
+                pmm.player_id,
+                pmm.appointment_id,
+                pmm.formation_place,
+                pmm.role_group,
+                pmm.minutes_played,
+
+                -- Raw player metrics
+                pmm.avg_x,
+                pmm.avg_y,
+                pmm.pct_final_third,
+                pmm.pct_progressive_passes,
+                pmm.pct_high_defensive,
+                pmm.xg_chain,
+                pmm.xg_buildup,
+                pmm.xg,
+                pmm.xa,
+
+                -- Role demand for this slot
+                rd.demand_avg_x,
+                rd.demand_avg_y,
+                rd.demand_pct_final_third,
+                rd.demand_pct_progressive,
+                rd.demand_pct_high_defensive,
+                rd.demand_xg_chain,
+                rd.demand_xg_buildup,
+                rd.demand_xg,
+                rd.demand_xa,
+                rd.reliability_score,
+
+                -- Deviations
+                pmm.avg_x - rd.demand_avg_x as dev_avg_x,
+                pmm.avg_y - rd.demand_avg_y as dev_avg_y,
+                pmm.pct_final_third - rd.demand_pct_final_third as dev_pct_final_third,
+                pmm.pct_progressive_passes - rd.demand_pct_progressive as dev_pct_progressive,
+                pmm.pct_high_defensive - rd.demand_pct_high_defensive as dev_pct_high_defensive,
+                pmm.xg_chain - rd.demand_xg_chain as dev_xg_chain,
+                pmm.xg_buildup - rd.demand_xg_buildup as dev_xg_buildup,
+                pmm.xg - rd.demand_xg as dev_xg,
+                pmm.xa - rd.demand_xa as dev_xa
+
+            FROM player_match_metrics pmm
+            JOIN role_demand rd
+                ON pmm.appointment_id = rd.appointment_id
+                AND pmm.formation_place = rd.formation_place
+                AND pmm.role_group = rd.role_group
+        )
+        SELECT
+            pvd.player_id,
+            pl.name as player_name,
+            pvd.appointment_id,
+            mgr.name as manager_name,
+            c.name as club_name,
+            pvd.formation_place,
+            pvd.role_group,
+
+            COUNT(*) as appearances,
+            SUM(pvd.minutes_played) as total_minutes,
+
+            -- Average deviations
+            ROUND(AVG(pvd.dev_avg_x)::numeric, 2) as dev_avg_x,
+            ROUND(AVG(pvd.dev_avg_y)::numeric, 2) as dev_avg_y,
+            ROUND(AVG(pvd.dev_pct_final_third)::numeric, 2) as dev_pct_final_third,
+            ROUND(AVG(pvd.dev_pct_progressive)::numeric, 2) as dev_pct_progressive,
+            ROUND(AVG(pvd.dev_pct_high_defensive)::numeric, 2) as dev_pct_high_defensive,
+            ROUND(AVG(pvd.dev_xg_chain)::numeric, 4) as dev_xg_chain,
+            ROUND(AVG(pvd.dev_xg_buildup)::numeric, 4) as dev_xg_buildup,
+            ROUND(AVG(pvd.dev_xg)::numeric, 4) as dev_xg,
+            ROUND(AVG(pvd.dev_xa)::numeric, 4) as dev_xa,
+
+            -- Stability of deviations
+            ROUND(STDDEV(pvd.dev_avg_x)::numeric, 2) as stddev_dev_avg_x,
+            ROUND(STDDEV(pvd.dev_xg_chain)::numeric, 4) as stddev_dev_xg_chain,
+
+            -- Reliability
+            ROUND(AVG(pvd.reliability_score)::numeric, 2) as role_reliability,
+            ROUND(LEAST(1.0, COUNT(*)::numeric / 10)::numeric, 2) as player_reliability
+
+        FROM player_vs_demand pvd
+        JOIN players pl ON pvd.player_id = pl.player_id
+        JOIN appointments a ON pvd.appointment_id = a.appointment_id
+        JOIN managers mgr ON a.manager_id = mgr.manager_id
+        JOIN clubs c ON a.club_id = c.club_id
+        GROUP BY
+            pvd.player_id, pl.name, pvd.appointment_id,
+            mgr.name, c.name, pvd.formation_place, pvd.role_group
+        HAVING COUNT(*) >= 3
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("Player deviation view created")
+
+
+def query_player_deviation(player_name):
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM player_deviation
+        WHERE player_name ILIKE %s
+        ORDER BY total_minutes DESC
+    """, (f'%{player_name}%',))
+
+    columns = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+
+    for row in rows:
+        print("\n" + "="*40)
+        for col, val in zip(columns, row):
+            print(f"{col}: {val}")
+
+    cursor.close()
+    conn.close()
+
+
 if __name__ == "__main__":
     create_manager_fingerprint_view()
     create_player_fingerprint_view()
     create_role_demand_view()
-    query_role_demand("Mikel Arteta")
+    create_player_deviation_view()
+    query_player_deviation("Bruno Fernandes")
