@@ -649,6 +649,33 @@ def create_clean_player_match_stats_table():
     print("clean_player_match_stats table created")
 
 
+def add_role_group_to_clean_lineups():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("""
+        ALTER TABLE clean_lineups
+        ADD COLUMN IF NOT EXISTS role_group VARCHAR(50)
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("role_group added to clean_lineups")
+
+
+def fix_clean_lineups_columns():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("""
+        ALTER TABLE clean_lineups
+        ADD COLUMN IF NOT EXISTS appointment_id INTEGER REFERENCES appointments(appointment_id),
+        ADD COLUMN IF NOT EXISTS role_group VARCHAR(50)
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("clean_lineups columns fixed")
+
+
 if __name__ == "__main__":
     create_tables()
     add_caretaker_column()
@@ -664,3 +691,5 @@ if __name__ == "__main__":
     create_understat_schedule_table()
     add_understat_game_id_to_matches()
     create_clean_player_match_stats_table()
+    add_role_group_to_clean_lineups()
+    fix_clean_lineups_columns()

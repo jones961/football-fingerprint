@@ -9,80 +9,74 @@ def create_manager_fingerprint_view():
     cursor.execute("DROP VIEW IF EXISTS manager_fingerprint CASCADE")
 
     cursor.execute("""
-            CREATE VIEW manager_fingerprint AS
-            SELECT
-                a.appointment_id,
-                mgr.name as manager_name,
-                c.name as club_name,
-                a.date_from,
-                a.date_to,
-                a.is_caretaker,
-                COUNT(DISTINCT ps.match_id) as matches,
-                COUNT(ps.id) as total_sequences,
+        CREATE VIEW manager_fingerprint AS
+        SELECT
+            a.appointment_id,
+            mgr.name as manager_name,
+            c.name as club_name,
+            a.date_from,
+            a.date_to,
+            a.is_caretaker,
+            COUNT(DISTINCT ps.match_id) as matches,
+            COUNT(ps.id) as total_sequences,
 
-                -- Territorial
-                ROUND(AVG(ps.start_x)::numeric, 2) as avg_start_x,
-                ROUND(AVG(ps.end_x)::numeric, 2) as avg_end_x,
-                ROUND(
-                    100.0 * COUNT(CASE WHEN ps.start_zone = 'defensive' THEN 1 END) 
-                    / NULLIF(COUNT(ps.id), 0)::numeric, 2
-                ) as pct_starts_defensive,
-                ROUND(
-                    100.0 * COUNT(CASE WHEN ps.start_zone = 'middle' THEN 1 END) 
-                    / NULLIF(COUNT(ps.id), 0)::numeric, 2
-                ) as pct_starts_middle,
-                ROUND(
-                    100.0 * COUNT(CASE WHEN ps.start_zone = 'final' THEN 1 END) 
-                    / NULLIF(COUNT(ps.id), 0)::numeric, 2
-                ) as pct_starts_final,
+            ROUND(AVG(ps.start_x)::numeric, 2) as avg_start_x,
+            ROUND(AVG(ps.end_x)::numeric, 2) as avg_end_x,
+            ROUND(
+                100.0 * COUNT(CASE WHEN ps.start_zone = 'defensive' THEN 1 END)
+                / NULLIF(COUNT(ps.id), 0)::numeric, 2
+            ) as pct_starts_defensive,
+            ROUND(
+                100.0 * COUNT(CASE WHEN ps.start_zone = 'middle' THEN 1 END)
+                / NULLIF(COUNT(ps.id), 0)::numeric, 2
+            ) as pct_starts_middle,
+            ROUND(
+                100.0 * COUNT(CASE WHEN ps.start_zone = 'final' THEN 1 END)
+                / NULLIF(COUNT(ps.id), 0)::numeric, 2
+            ) as pct_starts_final,
 
-                -- Directness
-                ROUND(AVG(ps.x_progression)::numeric, 2) as avg_x_progression,
-                ROUND(AVG(ps.event_count)::numeric, 2) as avg_sequence_length,
-                ROUND(AVG(ps.max_x)::numeric, 2) as avg_max_x,
+            ROUND(AVG(ps.x_progression)::numeric, 2) as avg_x_progression,
+            ROUND(AVG(ps.event_count)::numeric, 2) as avg_sequence_length,
+            ROUND(AVG(ps.max_x)::numeric, 2) as avg_max_x,
 
-                -- Width
-                ROUND(AVG(ps.width)::numeric, 2) as avg_width,
+            ROUND(AVG(ps.width)::numeric, 2) as avg_width,
 
-                -- Press intensity
-                ROUND(
-                    100.0 * COUNT(CASE WHEN ps.start_zone = 'final' THEN 1 END)
-                    / NULLIF(COUNT(ps.id), 0)::numeric, 2
-                ) as press_recovery_rate,
+            ROUND(
+                100.0 * COUNT(CASE WHEN ps.start_zone = 'final' THEN 1 END)
+                / NULLIF(COUNT(ps.id), 0)::numeric, 2
+            ) as press_recovery_rate,
 
-                -- Creation
-                ROUND(
-                    100.0 * COUNT(CASE WHEN ps.ended_with_shot THEN 1 END)
-                    / NULLIF(COUNT(ps.id), 0)::numeric, 2
-                ) as shot_sequence_rate,
-                ROUND(
-                    100.0 * COUNT(CASE WHEN ps.ended_with_goal THEN 1 END)
-                    / NULLIF(COUNT(ps.id), 0)::numeric, 2
-                ) as goal_sequence_rate,
-                ROUND(
-                    COUNT(CASE WHEN ps.ended_with_shot THEN 1 END)::numeric
-                    / NULLIF(COUNT(DISTINCT ps.match_id), 0), 2
-                ) as shot_sequences_per_match,
+            ROUND(
+                100.0 * COUNT(CASE WHEN ps.ended_with_shot THEN 1 END)
+                / NULLIF(COUNT(ps.id), 0)::numeric, 2
+            ) as shot_sequence_rate,
+            ROUND(
+                100.0 * COUNT(CASE WHEN ps.ended_with_goal THEN 1 END)
+                / NULLIF(COUNT(ps.id), 0)::numeric, 2
+            ) as goal_sequence_rate,
+            ROUND(
+                COUNT(CASE WHEN ps.ended_with_shot THEN 1 END)::numeric
+                / NULLIF(COUNT(DISTINCT ps.match_id), 0), 2
+            ) as shot_sequences_per_match,
 
-                -- End zone distribution
-                ROUND(
-                    100.0 * COUNT(CASE WHEN ps.end_zone = 'final' THEN 1 END)
-                    / NULLIF(COUNT(ps.id), 0)::numeric, 2
-                ) as pct_ends_final
+            ROUND(
+                100.0 * COUNT(CASE WHEN ps.end_zone = 'final' THEN 1 END)
+                / NULLIF(COUNT(ps.id), 0)::numeric, 2
+            ) as pct_ends_final
 
-            FROM proc_sequences ps
-            JOIN matches mat ON ps.match_id = mat.match_id
-            JOIN match_context mc ON mat.match_id = mc.match_id
-                AND mc.club_id = ps.club_id
-            JOIN appointments a ON mc.appointment_id = a.appointment_id
-            JOIN managers mgr ON a.manager_id = mgr.manager_id
-            JOIN clubs c ON a.club_id = c.club_id
-            WHERE a.is_caretaker = FALSE
-            GROUP BY
-                a.appointment_id, mgr.name, c.name,
-                a.date_from, a.date_to, a.is_caretaker
-            HAVING COUNT(DISTINCT ps.match_id) >= 5
-        """)
+        FROM proc_sequences ps
+        JOIN matches mat ON ps.match_id = mat.match_id
+        JOIN match_context mc ON mat.match_id = mc.match_id
+            AND mc.club_id = ps.club_id
+        JOIN appointments a ON mc.appointment_id = a.appointment_id
+        JOIN managers mgr ON a.manager_id = mgr.manager_id
+        JOIN clubs c ON a.club_id = c.club_id
+        WHERE a.is_caretaker = FALSE
+        GROUP BY
+            a.appointment_id, mgr.name, c.name,
+            a.date_from, a.date_to, a.is_caretaker
+        HAVING COUNT(DISTINCT ps.match_id) >= 5
+    """)
 
     conn.commit()
     cursor.close()
@@ -113,6 +107,7 @@ def query_manager_fingerprint(manager_name=None):
     cursor.close()
     conn.close()
 
+
 def create_player_fingerprint_view():
     conn = psycopg2.connect(**DB_CONFIG)
     cursor = conn.cursor()
@@ -139,14 +134,14 @@ def create_player_fingerprint_view():
                 ) as pct_actions_defensive_third,
                 ROUND(
                     100.0 * COUNT(*) FILTER (
-                        WHERE ce.type IN ('Tackle', 'Interception', 
+                        WHERE ce.type IN ('Tackle', 'Interception',
                                          'BallRecovery', 'Challenge')
                         AND ce.x > 67
                     ) / NULLIF(COUNT(*), 0)::numeric, 2
                 ) as pct_defensive_actions_high,
                 ROUND(
                     100.0 * COUNT(*) FILTER (
-                        WHERE ce.type IN ('Pass') 
+                        WHERE ce.type IN ('Pass')
                         AND ce.end_x > ce.x
                         AND ce.end_x IS NOT NULL
                     ) / NULLIF(
@@ -158,6 +153,9 @@ def create_player_fingerprint_view():
                 AND ce.club_id = mc.club_id
             WHERE ce.player_id IS NOT NULL
             AND ce.period IN ('FirstHalf', 'SecondHalf')
+            AND NOT (ce.x >= 99 AND (ce.y <= 1 OR ce.y >= 99))
+            AND NOT (ce.x <= 1 AND (ce.y <= 1 OR ce.y >= 99))
+            AND ce.type NOT IN ('CornerAwarded')
             GROUP BY ce.player_id, mc.appointment_id
         ),
         player_output AS (
@@ -171,7 +169,7 @@ def create_player_fingerprint_view():
                 ROUND(AVG(cpm.xg_per_90)::numeric, 4) as avg_xg_per_90,
                 ROUND(AVG(cpm.xa_per_90)::numeric, 4) as avg_xa_per_90,
                 ROUND(
-                    SUM(cpm.shots)::numeric * 90 
+                    SUM(cpm.shots)::numeric * 90
                     / NULLIF(SUM(cpm.minutes), 0), 4
                 ) as shots_per_90,
                 ROUND(
@@ -192,23 +190,18 @@ def create_player_fingerprint_view():
             a.date_from,
             a.date_to,
 
-            -- Playing time
             po.total_minutes,
             po.matches,
 
-            -- Territorial
             ps.avg_x,
             ps.avg_y,
             ps.pct_actions_final_third,
             ps.pct_actions_defensive_third,
 
-            -- Press contribution
             ps.pct_defensive_actions_high,
 
-            -- Directness
             ps.pct_progressive_passes,
 
-            -- Output quality
             po.avg_xg_per_90,
             po.avg_xa_per_90,
             po.avg_xg_chain_per_90,
@@ -269,7 +262,171 @@ def query_player_fingerprint(player_name=None, manager_name=None):
     conn.close()
 
 
+def create_role_demand_view():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("DROP VIEW IF EXISTS role_demand CASCADE")
+
+    cursor.execute("""
+        CREATE VIEW role_demand AS
+        WITH player_position_match AS (
+            SELECT
+                cl.appointment_id,
+                cl.player_id,
+                cl.match_id,
+                cl.formation_place,
+                cl.position,
+                cl.role_group,
+                cl.minutes_played,
+                cpm.xg,
+                cpm.xa,
+                cpm.xg_chain,
+                cpm.xg_buildup,
+                cpm.shots
+            FROM clean_lineups cl
+            JOIN clean_player_match_stats cpm
+                ON cl.player_id = cpm.player_id
+                AND cl.match_id = cpm.match_id
+            WHERE cl.minutes_played > 0
+            AND cl.formation_place IS NOT NULL
+            AND cl.appointment_id IS NOT NULL
+        ),
+        player_position_spatial AS (
+            SELECT
+                mc.appointment_id,
+                ce.player_id,
+                ce.match_id,
+                AVG(ce.x) as avg_x,
+                AVG(ce.y) as avg_y,
+                100.0 * COUNT(*) FILTER (WHERE ce.x > 67)
+                    / NULLIF(COUNT(*), 0) as pct_final_third,
+                100.0 * COUNT(*) FILTER (WHERE ce.x < 33)
+                    / NULLIF(COUNT(*), 0) as pct_defensive_third,
+                100.0 * COUNT(*) FILTER (
+                    WHERE ce.type IN ('Tackle','Interception',
+                                     'BallRecovery','Challenge')
+                    AND ce.x > 67
+                ) / NULLIF(COUNT(*), 0) as pct_high_defensive,
+                100.0 * COUNT(*) FILTER (
+                    WHERE ce.type = 'Pass'
+                    AND ce.end_x > ce.x
+                    AND ce.end_x IS NOT NULL
+                ) / NULLIF(
+                    COUNT(*) FILTER (WHERE ce.type = 'Pass'), 0
+                ) as pct_progressive_passes
+            FROM clean_events ce
+            JOIN match_context mc ON ce.match_id = mc.match_id
+                AND ce.club_id = mc.club_id
+            WHERE ce.player_id IS NOT NULL
+            AND ce.period IN ('FirstHalf', 'SecondHalf')
+            AND NOT (ce.x >= 99 AND (ce.y <= 1 OR ce.y >= 99))
+            AND NOT (ce.x <= 1 AND (ce.y <= 1 OR ce.y >= 99))
+            AND ce.type NOT IN ('CornerAwarded')
+            GROUP BY mc.appointment_id, ce.player_id, ce.match_id
+        ),
+        combined AS (
+            SELECT
+                ppm.appointment_id,
+                ppm.formation_place,
+                ppm.position,
+                ppm.role_group,
+                ppm.minutes_played,
+                pps.avg_x,
+                pps.avg_y,
+                pps.pct_final_third,
+                pps.pct_defensive_third,
+                pps.pct_high_defensive,
+                pps.pct_progressive_passes,
+                ppm.xg,
+                ppm.xa,
+                ppm.xg_chain,
+                ppm.xg_buildup,
+                ppm.shots
+            FROM player_position_match ppm
+            JOIN player_position_spatial pps
+                ON ppm.appointment_id = pps.appointment_id
+                AND ppm.player_id = pps.player_id
+                AND ppm.match_id = pps.match_id
+        )
+        SELECT
+            a.appointment_id,
+            mgr.name as manager_name,
+            c.name as club_name,
+            combined.formation_place,
+            combined.role_group,
+
+            COUNT(*) as appearances,
+            SUM(combined.minutes_played) as total_minutes,
+
+            ROUND(AVG(combined.avg_x)::numeric, 2) as demand_avg_x,
+            ROUND(AVG(combined.avg_y)::numeric, 2) as demand_avg_y,
+            ROUND(AVG(combined.pct_final_third)::numeric, 2) as demand_pct_final_third,
+            ROUND(AVG(combined.pct_defensive_third)::numeric, 2) as demand_pct_defensive_third,
+            ROUND(AVG(combined.pct_high_defensive)::numeric, 2) as demand_pct_high_defensive,
+            ROUND(AVG(combined.pct_progressive_passes)::numeric, 2) as demand_pct_progressive,
+            ROUND(AVG(combined.xg_chain)::numeric, 4) as demand_xg_chain,
+            ROUND(AVG(combined.xg_buildup)::numeric, 4) as demand_xg_buildup,
+            ROUND(AVG(combined.xg)::numeric, 4) as demand_xg,
+            ROUND(AVG(combined.xa)::numeric, 4) as demand_xa,
+
+            ROUND(STDDEV(combined.avg_x)::numeric, 2) as stddev_avg_x,
+            ROUND(STDDEV(combined.pct_final_third)::numeric, 2) as stddev_pct_final_third,
+            ROUND(STDDEV(combined.pct_progressive_passes)::numeric, 2) as stddev_pct_progressive,
+            ROUND(STDDEV(combined.xg_chain)::numeric, 4) as stddev_xg_chain,
+
+            ROUND(
+                LEAST(1.0, COUNT(*)::numeric / 20)::numeric, 2
+            ) as reliability_score
+
+        FROM combined
+        JOIN appointments a ON combined.appointment_id = a.appointment_id
+        JOIN managers mgr ON a.manager_id = mgr.manager_id
+        JOIN clubs c ON a.club_id = c.club_id
+        GROUP BY
+            a.appointment_id, mgr.name, c.name,
+            combined.formation_place, combined.role_group
+        HAVING COUNT(*) >= 3
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("Role demand view created")
+
+
+def query_role_demand(manager_name, formation_place=None):
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    if formation_place:
+        cursor.execute("""
+            SELECT * FROM role_demand
+            WHERE manager_name = %s
+            AND formation_place = %s
+            ORDER BY appearances DESC
+        """, (manager_name, formation_place))
+    else:
+        cursor.execute("""
+            SELECT * FROM role_demand
+            WHERE manager_name = %s
+            ORDER BY formation_place, appearances DESC
+        """, (manager_name,))
+
+    columns = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+
+    for row in rows:
+        print("\n" + "="*40)
+        for col, val in zip(columns, row):
+            print(f"{col}: {val}")
+
+    cursor.close()
+    conn.close()
+
+
 if __name__ == "__main__":
     create_manager_fingerprint_view()
     create_player_fingerprint_view()
-    query_player_fingerprint(manager_name="Mikel Arteta")
+    create_role_demand_view()
+    query_role_demand("Mikel Arteta")
