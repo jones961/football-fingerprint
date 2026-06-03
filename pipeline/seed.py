@@ -325,9 +325,62 @@ def populate_espn_names():
     print(f"Updated espn_name for {updated} clubs")
 
 
+def seed_position_roles():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS position_roles (
+            id              SERIAL PRIMARY KEY,
+            espn_position   VARCHAR(100) UNIQUE NOT NULL,
+            role_group      VARCHAR(50) NOT NULL
+        )
+    """)
+
+    roles = [
+        ('Goalkeeper', 'Goalkeeper'),
+        ('Center Left Defender', 'Centre Back'),
+        ('Center Right Defender', 'Centre Back'),
+        ('Center Defender', 'Centre Back'),
+        ('Sweeper', 'Centre Back'),
+        ('Left Back', 'Fullback'),
+        ('Right Back', 'Fullback'),
+        ('Defensive Midfielder', 'Defensive Midfielder'),
+        ('Rear Center Midfielder', 'Defensive Midfielder'),
+        ('Center Left Midfielder', 'Central Midfielder'),
+        ('Center Right Midfielder', 'Central Midfielder'),
+        ('Center Midfielder', 'Central Midfielder'),
+        ('Midfielder', 'Central Midfielder'),
+        ('Left Midfielder', 'Winger'),
+        ('Right Midfielder', 'Winger'),
+        ('Attacking Midfielder Left', 'Winger'),
+        ('Attacking Midfielder Right', 'Winger'),
+        ('Left Forward', 'Winger'),
+        ('Right Forward', 'Winger'),
+        ('Attacking Midfielder', 'Attacking Midfielder'),
+        ('Forward', 'Forward'),
+        ('Center Left Forward', 'Forward'),
+        ('Center Right Forward', 'Forward'),
+        ('Rear Center Forward', 'Forward'),
+    ]
+
+    cursor.executemany("""
+        INSERT INTO position_roles (espn_position, role_group)
+        VALUES (%s, %s)
+        ON CONFLICT (espn_position) DO UPDATE
+        SET role_group = EXCLUDED.role_group
+    """, roles)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"Seeded {len(roles)} position role mappings")
+
+
 if __name__ == "__main__":
     seed_reference_tables()
     populate_ws_team_ids()
     fix_understat_names()
     populate_understat_names()
     populate_espn_names()
+    seed_position_roles()
