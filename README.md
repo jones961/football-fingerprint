@@ -173,3 +173,23 @@ python pipeline/seed.py
 - ESPN data unavailable for 2020/21 season
 - West Bromwich Albion (relegated after 2020/21) has limited ESPN coverage
 - The framework requires at least one cross-context observation per player for full fingerprint decomposition
+
+---
+
+## Emerging Analytical Directions
+
+These insights emerged during the proof of concept and represent natural extensions of the framework once the core is validated.
+
+### The Direction of Influence Problem
+
+The deviation fingerprint currently assumes the manager's role demand is the anchor and the player deviates from it. But the causal arrow may run the other way — a manager may build the system around what a specific player does naturally, making that player's behaviour the anchor and the role demand converging toward them.
+
+You can detect this in the data. If a player's deviation from a role demand is near zero AND they account for the majority of appearances in that slot AND the standard deviation of that role demand is low, the role demand may have been shaped by the player rather than the player fitting the system.
+
+This opens a third analytical dimension beyond fit and deviation — **player influence on system**. Some players are system-agnostic fits, some are system-breakers, and some are system-shapers. The framework can identify all three from the same data.
+
+### The Aggregated Deviation Question
+
+When you pool the deviation shifts of many players moving into or out of a specific club or manager's system, patterns emerge about what that system systematically does to player behaviour. Does it suppress certain tendencies? Amplify others? Are there consistent patterns for attacking players versus defensive ones?
+
+This bottom-up approach to club identity — derived from aggregate player deviation shifts rather than asserted top-down — may reveal things about club culture and system rigidity that are invisible to traditional analysis.

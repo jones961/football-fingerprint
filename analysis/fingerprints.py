@@ -612,9 +612,360 @@ def query_player_deviation(player_name):
     conn.close()
 
 
+def create_role_group_demand_view():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("DROP VIEW IF EXISTS role_group_demand CASCADE")
+
+    cursor.execute("""
+        CREATE VIEW role_group_demand AS
+        SELECT
+            appointment_id,
+            manager_name,
+            club_name,
+            role_group,
+
+            -- Weighted averages across formation places
+            ROUND(
+                SUM(demand_avg_x * appearances) 
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as demand_avg_x,
+            ROUND(
+                SUM(demand_avg_y * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as demand_avg_y,
+            ROUND(
+                SUM(demand_pct_final_third * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as demand_pct_final_third,
+            ROUND(
+                SUM(demand_pct_defensive_third * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as demand_pct_defensive_third,
+            ROUND(
+                SUM(demand_pct_high_defensive * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as demand_pct_high_defensive,
+            ROUND(
+                SUM(demand_pct_progressive * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as demand_pct_progressive,
+            ROUND(
+                SUM(demand_xg_chain * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 4
+            ) as demand_xg_chain,
+            ROUND(
+                SUM(demand_xg_buildup * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 4
+            ) as demand_xg_buildup,
+            ROUND(
+                SUM(demand_xg * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 4
+            ) as demand_xg,
+            ROUND(
+                SUM(demand_xa * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 4
+            ) as demand_xa,
+
+            SUM(appearances) as total_appearances,
+            ROUND(AVG(reliability_score)::numeric, 2) as reliability_score
+
+        FROM role_demand
+        GROUP BY appointment_id, manager_name, club_name, role_group
+        HAVING SUM(appearances) >= 5
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("Role group demand view created")
+
+
+def create_player_role_deviation_view():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("DROP VIEW IF EXISTS player_role_deviation CASCADE")
+
+    cursor.execute("""
+        CREATE VIEW player_role_deviation AS
+        SELECT
+            player_id,
+            player_name,
+            appointment_id,
+            manager_name,
+            club_name,
+            role_group,
+
+            SUM(appearances) as total_appearances,
+            SUM(total_minutes) as total_minutes,
+
+            -- Weighted average deviations
+            ROUND(
+                SUM(dev_avg_x * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as dev_avg_x,
+            ROUND(
+                SUM(dev_avg_y * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as dev_avg_y,
+            ROUND(
+                SUM(dev_pct_final_third * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as dev_pct_final_third,
+            ROUND(
+                SUM(dev_pct_progressive * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as dev_pct_progressive,
+            ROUND(
+                SUM(dev_pct_high_defensive * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 2
+            ) as dev_pct_high_defensive,
+            ROUND(
+                SUM(dev_xg_chain * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 4
+            ) as dev_xg_chain,
+            ROUND(
+                SUM(dev_xg_buildup * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 4
+            ) as dev_xg_buildup,
+            ROUND(
+                SUM(dev_xg * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 4
+            ) as dev_xg,
+            ROUND(
+                SUM(dev_xa * appearances)
+                / NULLIF(SUM(appearances), 0)::numeric, 4
+            ) as dev_xa,
+
+            ROUND(AVG(role_reliability)::numeric, 2) as role_reliability,
+            ROUND(AVG(player_reliability)::numeric, 2) as player_reliability
+
+        FROM player_deviation
+        GROUP BY
+            player_id, player_name, appointment_id,
+            manager_name, club_name, role_group
+        HAVING SUM(appearances) >= 3
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("Player role deviation view created")
+
+
+def create_compatibility_score_view():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("DROP VIEW IF EXISTS compatibility_score CASCADE")
+
+    cursor.execute("""
+        CREATE VIEW compatibility_score AS
+        WITH cross_system_baseline AS (
+            SELECT
+                role_group,
+                AVG(demand_avg_x) as mean_demand_avg_x,
+                AVG(demand_pct_final_third) as mean_demand_pct_final_third,
+                AVG(demand_pct_progressive) as mean_demand_pct_progressive,
+                AVG(demand_pct_high_defensive) as mean_demand_pct_high_defensive,
+                AVG(demand_xg_chain) as mean_demand_xg_chain,
+                AVG(demand_xg_buildup) as mean_demand_xg_buildup,
+                AVG(demand_xg) as mean_demand_xg,
+                AVG(demand_xa) as mean_demand_xa,
+                STDDEV(demand_avg_x) as std_avg_x,
+                STDDEV(demand_pct_final_third) as std_pct_final_third,
+                STDDEV(demand_pct_progressive) as std_pct_progressive,
+                STDDEV(demand_pct_high_defensive) as std_pct_high_defensive,
+                STDDEV(demand_xg_chain) as std_xg_chain,
+                STDDEV(demand_xg_buildup) as std_xg_buildup,
+                STDDEV(demand_xg) as std_xg,
+                STDDEV(demand_xa) as std_xa
+            FROM role_group_demand
+            GROUP BY role_group
+        ),
+        target_premium AS (
+            SELECT
+                rgd.appointment_id,
+                rgd.manager_name,
+                rgd.club_name,
+                rgd.role_group,
+                rgd.total_appearances,
+                rgd.reliability_score,
+
+                -- How much does this manager demand above/below average
+                -- Normalised by cross-system std dev
+                CASE WHEN csb.std_avg_x > 0
+                    THEN (rgd.demand_avg_x - csb.mean_demand_avg_x) / csb.std_avg_x
+                    ELSE 0 END as premium_avg_x,
+                CASE WHEN csb.std_pct_final_third > 0
+                    THEN (rgd.demand_pct_final_third - csb.mean_demand_pct_final_third) / csb.std_pct_final_third
+                    ELSE 0 END as premium_pct_final_third,
+                CASE WHEN csb.std_pct_progressive > 0
+                    THEN (rgd.demand_pct_progressive - csb.mean_demand_pct_progressive) / csb.std_pct_progressive
+                    ELSE 0 END as premium_pct_progressive,
+                CASE WHEN csb.std_pct_high_defensive > 0
+                    THEN (rgd.demand_pct_high_defensive - csb.mean_demand_pct_high_defensive) / csb.std_pct_high_defensive
+                    ELSE 0 END as premium_pct_high_defensive,
+                CASE WHEN csb.std_xg_chain > 0
+                    THEN (rgd.demand_xg_chain - csb.mean_demand_xg_chain) / csb.std_xg_chain
+                    ELSE 0 END as premium_xg_chain,
+                CASE WHEN csb.std_xg_buildup > 0
+                    THEN (rgd.demand_xg_buildup - csb.mean_demand_xg_buildup) / csb.std_xg_buildup
+                    ELSE 0 END as premium_xg_buildup,
+                CASE WHEN csb.std_xg > 0
+                    THEN (rgd.demand_xg - csb.mean_demand_xg) / csb.std_xg
+                    ELSE 0 END as premium_xg,
+                CASE WHEN csb.std_xa > 0
+                    THEN (rgd.demand_xa - csb.mean_demand_xa) / csb.std_xa
+                    ELSE 0 END as premium_xa
+            FROM role_group_demand rgd
+            JOIN cross_system_baseline csb ON rgd.role_group = csb.role_group
+        ),
+        player_normalised AS (
+            SELECT
+                prd.player_id,
+                prd.player_name,
+                prd.appointment_id as source_appointment_id,
+                prd.manager_name as source_manager,
+                prd.club_name as source_club,
+                prd.role_group,
+                prd.total_appearances as source_appearances,
+                prd.player_reliability,
+                prd.role_reliability,
+
+                -- Normalise player deviations by cross-system std
+                CASE WHEN csb.std_avg_x > 0
+                    THEN prd.dev_avg_x / csb.std_avg_x
+                    ELSE 0 END as norm_dev_avg_x,
+                CASE WHEN csb.std_pct_final_third > 0
+                    THEN prd.dev_pct_final_third / csb.std_pct_final_third
+                    ELSE 0 END as norm_dev_pct_final_third,
+                CASE WHEN csb.std_pct_progressive > 0
+                    THEN prd.dev_pct_progressive / csb.std_pct_progressive
+                    ELSE 0 END as norm_dev_pct_progressive,
+                CASE WHEN csb.std_pct_high_defensive > 0
+                    THEN prd.dev_pct_high_defensive / csb.std_pct_high_defensive
+                    ELSE 0 END as norm_dev_pct_high_defensive,
+                CASE WHEN csb.std_xg_chain > 0
+                    THEN prd.dev_xg_chain / csb.std_xg_chain
+                    ELSE 0 END as norm_dev_xg_chain,
+                CASE WHEN csb.std_xg_buildup > 0
+                    THEN prd.dev_xg_buildup / csb.std_xg_buildup
+                    ELSE 0 END as norm_dev_xg_buildup,
+                CASE WHEN csb.std_xg > 0
+                    THEN prd.dev_xg / csb.std_xg
+                    ELSE 0 END as norm_dev_xg,
+                CASE WHEN csb.std_xa > 0
+                    THEN prd.dev_xa / csb.std_xa
+                    ELSE 0 END as norm_dev_xa
+
+            FROM player_role_deviation prd
+            JOIN cross_system_baseline csb ON prd.role_group = csb.role_group
+        )
+        SELECT
+            pn.player_id,
+            pn.player_name,
+            pn.source_manager,
+            pn.source_club,
+            pn.role_group,
+            pn.source_appearances,
+            tp.manager_name as target_manager,
+            tp.club_name as target_club,
+            tp.total_appearances as target_role_appearances,
+
+            -- Compatibility score per dimension
+            -- Positive = player tendency aligns with target system need
+            -- Negative = player tendency conflicts with target system need
+            ROUND((pn.norm_dev_avg_x * tp.premium_avg_x)::numeric, 3)
+                as compat_territorial,
+            ROUND((pn.norm_dev_pct_final_third * tp.premium_pct_final_third)::numeric, 3)
+                as compat_final_third,
+            ROUND((pn.norm_dev_pct_progressive * tp.premium_pct_progressive)::numeric, 3)
+                as compat_progressive,
+            ROUND((pn.norm_dev_pct_high_defensive * tp.premium_pct_high_defensive)::numeric, 3)
+                as compat_press,
+            ROUND((pn.norm_dev_xg_chain * tp.premium_xg_chain)::numeric, 3)
+                as compat_xg_chain,
+            ROUND((pn.norm_dev_xg_buildup * tp.premium_xg_buildup)::numeric, 3)
+                as compat_xg_buildup,
+            ROUND((pn.norm_dev_xg * tp.premium_xg)::numeric, 3)
+                as compat_xg,
+            ROUND((pn.norm_dev_xa * tp.premium_xa)::numeric, 3)
+                as compat_xa,
+
+            -- Overall compatibility score
+            ROUND((
+                (pn.norm_dev_avg_x * tp.premium_avg_x) +
+                (pn.norm_dev_pct_final_third * tp.premium_pct_final_third) +
+                (pn.norm_dev_pct_progressive * tp.premium_pct_progressive) +
+                (pn.norm_dev_pct_high_defensive * tp.premium_pct_high_defensive) +
+                (pn.norm_dev_xg_chain * tp.premium_xg_chain) +
+                (pn.norm_dev_xg_buildup * tp.premium_xg_buildup) +
+                (pn.norm_dev_xg * tp.premium_xg) +
+                (pn.norm_dev_xa * tp.premium_xa)
+            )::numeric / 8, 3) as compatibility_score,
+
+            -- Reliability weights
+            ROUND((pn.player_reliability * pn.role_reliability * tp.reliability_score)::numeric, 3)
+                as combined_reliability
+
+        FROM player_normalised pn
+        JOIN target_premium tp ON pn.role_group = tp.role_group
+        WHERE pn.source_appointment_id != tp.appointment_id
+        AND tp.reliability_score >= 0.5
+        AND pn.player_reliability >= 0.3
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("Compatibility score view created")
+
+
+def query_compatibility(player_name, target_manager):
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            player_name,
+            source_manager,
+            role_group,
+            source_appearances,
+            target_manager,
+            compatibility_score,
+            combined_reliability,
+            compat_territorial,
+            compat_progressive,
+            compat_press,
+            compat_xg_chain,
+            compat_xa
+        FROM compatibility_score
+        WHERE player_name ILIKE %s
+        AND target_manager = %s
+        ORDER BY compatibility_score DESC
+    """, (f'%{player_name}%', target_manager))
+
+    columns = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+
+    for row in rows:
+        print("\n" + "="*40)
+        for col, val in zip(columns, row):
+            print(f"{col}: {val}")
+
+    cursor.close()
+    conn.close()
+
+
 if __name__ == "__main__":
     create_manager_fingerprint_view()
     create_player_fingerprint_view()
     create_role_demand_view()
     create_player_deviation_view()
-    query_player_deviation("Bruno Fernandes")
+    create_role_group_demand_view()
+    create_player_role_deviation_view()
+    create_compatibility_score_view()
+    query_compatibility("Bruno Fernandes", "Ruben Amorim")
