@@ -154,17 +154,32 @@ def verify_matches(club_ws_name):
     cursor.close()
     conn.close()
 
+
 def season_label_to_ws(label):
-    # Converts '2024/25' to '2024/2025'
+    # Converts '2020/2021' to '2020/2021' (already correct format)
+    # Converts '2020/21' to '2020/2021'
     parts = label.split('/')
     start_year = parts[0]
-    end_year_short = parts[1]
-    end_year_full = start_year[:2] + end_year_short
-    return f"{start_year}/{end_year_full}"
+    end_year = parts[1]
+
+    if len(end_year) == 2:
+        # Short format like '2020/21' -> '2020/2021'
+        end_year_full = start_year[:2] + end_year
+        return f"{start_year}/{end_year_full}"
+    else:
+        # Already full format like '2020/2021'
+        return label
 
 def load_events(club_ws_name, season_label):
     conn = psycopg2.connect(**DB_CONFIG)
     cursor = conn.cursor()
+
+    # Convert to short format for database lookup
+    parts = season_label.split('/')
+    if len(parts[1]) == 4:
+        db_season_label = parts[0] + '/' + parts[1][2:]
+    else:
+        db_season_label = season_label
 
     cursor.execute("""
         SELECT m.match_id, m.ws_game_id
@@ -174,14 +189,15 @@ def load_events(club_ws_name, season_label):
         JOIN seasons s ON m.season_id = s.season_id
         WHERE c.ws_name = %s
         AND s.label = %s
-    """, (club_ws_name, season_label))
+    """, (club_ws_name, db_season_label))
 
     matches = cursor.fetchall()
     print(f"Found {len(matches)} matches for {club_ws_name} {season_label}")
 
     ws = sd.WhoScored(
         leagues="ENG-Premier League",
-        seasons=season_label_to_ws(season_label)
+        seasons=season_label_to_ws(season_label),
+        headless = True
     )
 
     total_inserted = 0

@@ -193,3 +193,33 @@ This opens a third analytical dimension beyond fit and deviation — **player in
 When you pool the deviation shifts of many players moving into or out of a specific club or manager's system, patterns emerge about what that system systematically does to player behaviour. Does it suppress certain tendencies? Amplify others? Are there consistent patterns for attacking players versus defensive ones?
 
 This bottom-up approach to club identity — derived from aggregate player deviation shifts rather than asserted top-down — may reveal things about club culture and system rigidity that are invisible to traditional analysis.
+
+### Player-System Incompatibility Detection
+
+A player is incompatible with a system when their natural tendencies actively conflict with what the system demands from their role. This is measurable as large deviations in directions the system does not want — a player whose deviation fingerprint consistently pushes against the system's role demand premium. The framework can formalise this as a mismatch score alongside the compatibility score, identifying not just poor fit but active system conflict.
+
+### Vision-Reality Gap
+
+A manager's vision is measurable as their role demand profile — what each slot in their system requires. The reality is the aggregate of what their available players can actually deliver in those slots. When the squad's average fingerprint systematically falls short of the role demand across multiple positions, there is a structural gap between the manager's system intent and the personnel available to execute it. This is quantifiable from existing framework components without additional data.
+
+### Natural Role Detection from Out-of-Position Deviations
+
+When a player is deployed out of their natural position, their deviation fingerprint reveals what they gravitate toward even when the system fights them. A player showing large positive progressive passing deviations when deployed as a forward is expressing midfield instincts through a forward role. By finding the role demand profile that most closely matches a player's raw behavioural fingerprint — regardless of the position label they were given — the framework can identify a player's natural role from the data alone, without relying on positional labels. This has direct application in transfer assessment: understanding what a player naturally is, not just what they have been asked to do.
+
+### Recommendation Engine
+
+Given a target manager's system, the framework can rank all players in the database by their compatibility score for each role the manager needs to fill. Combined with output quality metrics, this produces a ranked shortlist of players whose natural tendencies align with the system's demands — surfacing non-obvious fits that traditional positional matching would miss.### Player-System Incompatibility Detection
+
+A player is incompatible with a system when their natural tendencies actively conflict with what the system demands from their role. This is measurable as large deviations in directions the system does not want — a player whose deviation fingerprint consistently pushes against the system's role demand premium. The framework can formalise this as a mismatch score alongside the compatibility score, identifying not just poor fit but active system conflict.
+
+### Vision-Reality Gap
+
+A manager's vision is measurable as their role demand profile — what each slot in their system requires. The reality is the aggregate of what their available players can actually deliver in those slots. When the squad's average fingerprint systematically falls short of the role demand across multiple positions, there is a structural gap between the manager's system intent and the personnel available to execute it. This is quantifiable from existing framework components without additional data.
+
+### Natural Role Detection from Out-of-Position Deviations
+
+When a player is deployed out of their natural position, their deviation fingerprint reveals what they gravitate toward even when the system fights them. A player showing large positive progressive passing deviations when deployed as a forward is expressing midfield instincts through a forward role. By finding the role demand profile that most closely matches a player's raw behavioural fingerprint — regardless of the position label they were given — the framework can identify a player's natural role from the data alone, without relying on positional labels. This has direct application in transfer assessment: understanding what a player naturally is, not just what they have been asked to do.
+
+### Recommendation Engine
+
+Given a target manager's system, the framework can rank all players in the database by their compatibility score for each role the manager needs to fill. Combined with output quality metrics, this produces a ranked shortlist of players whose natural tendencies align with the system's demands — surfacing non-obvious fits that traditional positional matching would miss.
