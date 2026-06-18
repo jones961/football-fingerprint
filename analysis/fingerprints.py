@@ -72,6 +72,7 @@ def create_manager_fingerprint_view():
         JOIN managers mgr ON a.manager_id = mgr.manager_id
         JOIN clubs c ON a.club_id = c.club_id
         WHERE a.is_caretaker = FALSE
+        AND ps.event_count >= 3
         GROUP BY
             a.appointment_id, mgr.name, c.name,
             a.date_from, a.date_to, a.is_caretaker
@@ -915,7 +916,8 @@ def create_compatibility_score_view():
         JOIN target_premium tp ON pn.role_group = tp.role_group
         WHERE pn.source_appointment_id != tp.appointment_id
         AND tp.reliability_score >= 0.5
-        AND pn.player_reliability >= 0.3
+        AND pn.player_reliability >= 0.5
+        AND pn.role_reliability >= 0.5
     """)
 
     conn.commit()
@@ -960,6 +962,192 @@ def query_compatibility(player_name, target_manager):
     conn.close()
 
 
+def create_defensive_fingerprint_view():
+    """
+    Defensive component of the player fingerprint.
+
+    Keyed on (player_id, appointment_id) — IDENTICAL grain to player_fingerprint
+    — so it joins straight onto the existing fingerprint stack.
+
+    All action metrics are per-90, divided by minutes from clean_player_match_stats
+    (the SAME minutes source player_fingerprint uses, so denominators are consistent
+    across the whole fingerprint layer).
+
+    Carries total_minutes, matches, and minutes_per_game as the reliability /
+    sub-detector lens: per-90 hides sample size, so these tell you how much to
+    trust the rates and whether the player is a starter or mostly a sub.
+
+    Two-sided types are handled with is_successful:
+      aerial:  is_successful = TRUE  -> won
+      tackling: Tackle won vs Challenge (beaten) -> tackle success rate
+    """
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("DROP VIEW IF EXISTS defensive_fingerprint CASCADE")
+
+    cursor.execute("""
+        CREATE VIEW defensive_fingerprint AS
+        WITH minutes_by_player AS (
+            SELECT
+                player_id,
+                appointment_id,
+                SUM(minutes) AS total_minutes,
+                COUNT(DISTINCT match_id) AS matches
+            FROM clean_player_match_stats
+            WHERE minutes > 0
+            GROUP BY player_id, appointment_id
+        ),
+        def_by_player AS (
+            SELECT
+                pda.player_id,
+                mc.appointment_id,
+
+                COUNT(*) AS total_def_actions,
+
+                -- Territory: where this player defends
+                ROUND(AVG(pda.x)::numeric, 2) AS avg_def_x,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE pda.x > 67)
+                    / NULLIF(COUNT(*), 0)::numeric, 2
+                ) AS pct_def_actions_high,
+
+                -- Category mix (share of this player's defending by type)
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE pda.defensive_category = 'ball_winning')
+                    / NULLIF(COUNT(*), 0)::numeric, 2
+                ) AS pct_ball_winning,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE pda.defensive_category = 'tackling')
+                    / NULLIF(COUNT(*), 0)::numeric, 2
+                ) AS pct_tackling,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE pda.defensive_category = 'clearing')
+                    / NULLIF(COUNT(*), 0)::numeric, 2
+                ) AS pct_clearing,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE pda.defensive_category = 'aerial')
+                    / NULLIF(COUNT(*), 0)::numeric, 2
+                ) AS pct_aerial,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE pda.defensive_category = 'blocking')
+                    / NULLIF(COUNT(*), 0)::numeric, 2
+                ) AS pct_blocking,
+
+                -- Raw counts for the per-90 calc (done after join to minutes)
+                COUNT(*) FILTER (WHERE pda.defensive_category = 'ball_winning') AS n_ball_winning,
+                COUNT(*) FILTER (WHERE pda.defensive_category = 'tackling') AS n_tackling,
+                COUNT(*) FILTER (WHERE pda.defensive_category = 'clearing') AS n_clearing,
+                COUNT(*) FILTER (WHERE pda.defensive_category = 'blocking') AS n_blocking,
+
+                -- Quality: tackle success (Tackle won vs total tackle attempts incl. Challenge)
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE pda.type = 'Tackle' AND pda.is_successful)
+                    / NULLIF(COUNT(*) FILTER (
+                        WHERE pda.type IN ('Tackle', 'Challenge')
+                    ), 0)::numeric, 2
+                ) AS tackle_success_pct,
+
+                -- Quality: aerial win rate (won vs all aerials by this player)
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE pda.defensive_category = 'aerial' AND pda.is_successful)
+                    / NULLIF(COUNT(*) FILTER (
+                        WHERE pda.defensive_category = 'aerial'
+                    ), 0)::numeric, 2
+                ) AS aerial_win_pct
+
+            FROM proc_defensive_actions pda
+            JOIN match_context mc
+                ON pda.match_id = mc.match_id
+                AND pda.club_id = mc.club_id
+            WHERE pda.player_id IS NOT NULL
+            GROUP BY pda.player_id, mc.appointment_id
+        )
+        SELECT
+            d.player_id,
+            pl.name AS player_name,
+            d.appointment_id,
+            mgr.name AS manager_name,
+            c.name AS club_name,
+
+            m.total_minutes,
+            m.matches,
+            ROUND(m.total_minutes::numeric / NULLIF(m.matches, 0), 1) AS minutes_per_game,
+
+            -- Overall defensive workload, per 90
+            ROUND(d.total_def_actions::numeric * 90 / NULLIF(m.total_minutes, 0), 2)
+                AS def_actions_per_90,
+
+            -- Per-90 by category
+            ROUND(d.n_ball_winning::numeric * 90 / NULLIF(m.total_minutes, 0), 2)
+                AS ball_winning_per_90,
+            ROUND(d.n_tackling::numeric * 90 / NULLIF(m.total_minutes, 0), 2)
+                AS tackling_per_90,
+            ROUND(d.n_clearing::numeric * 90 / NULLIF(m.total_minutes, 0), 2)
+                AS clearing_per_90,
+            ROUND(d.n_blocking::numeric * 90 / NULLIF(m.total_minutes, 0), 2)
+                AS blocking_per_90,
+
+            -- Territory
+            d.avg_def_x,
+            d.pct_def_actions_high,
+
+            -- Category mix (shares)
+            d.pct_ball_winning,
+            d.pct_tackling,
+            d.pct_clearing,
+            d.pct_aerial,
+            d.pct_blocking,
+
+            -- Quality
+            d.tackle_success_pct,
+            d.aerial_win_pct,
+
+            -- Reliability: low when minutes are thin (per-90 not yet trustworthy)
+            ROUND(LEAST(1.0, m.total_minutes::numeric / 900)::numeric, 2) AS reliability_score
+
+        FROM def_by_player d
+        JOIN minutes_by_player m
+            ON d.player_id = m.player_id
+            AND d.appointment_id = m.appointment_id
+        JOIN players pl ON d.player_id = pl.player_id
+        JOIN appointments a ON d.appointment_id = a.appointment_id
+        JOIN managers mgr ON a.manager_id = mgr.manager_id
+        JOIN clubs c ON a.club_id = c.club_id
+        WHERE m.total_minutes >= 180
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("Defensive fingerprint view created")
+
+
+def query_defensive_fingerprint(player_name=None):
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    if player_name:
+        cursor.execute("""
+            SELECT * FROM defensive_fingerprint
+            WHERE player_name ILIKE %s
+            ORDER BY total_minutes DESC
+        """, (f'%{player_name}%',))
+    else:
+        cursor.execute("""
+            SELECT * FROM defensive_fingerprint
+            ORDER BY total_minutes DESC
+            LIMIT 20
+        """)
+    columns = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+    for row in rows:
+        print("\n" + "=" * 40)
+        for col, val in zip(columns, row):
+            print(f"{col}: {val}")
+    cursor.close()
+    conn.close()
+
+
 if __name__ == "__main__":
     create_manager_fingerprint_view()
     create_player_fingerprint_view()
@@ -968,4 +1156,5 @@ if __name__ == "__main__":
     create_role_group_demand_view()
     create_player_role_deviation_view()
     create_compatibility_score_view()
-    query_compatibility("Bruno Fernandes", "Ruben Amorim")
+    create_defensive_fingerprint_view()      # <-- this line must be present
+    query_defensive_fingerprint("Casemiro")

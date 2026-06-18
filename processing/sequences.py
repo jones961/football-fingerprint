@@ -1,4 +1,8 @@
+import time
+
 import psycopg2
+from psycopg2.extras import execute_values
+
 from config import DB_CONFIG
 
 POSSESSION_CHANGE_TYPES = {
@@ -49,12 +53,9 @@ def classify_zone(x):
     return 'final'
 
 
-def identify_sequences(match_id):
-    conn = psycopg2.connect(**DB_CONFIG)
-    cursor = conn.cursor()
-
+def identify_sequences(cursor, match_id):
     cursor.execute("""
-        SELECT 
+        SELECT
             id, club_id, player_id, player_name,
             period, minute, second, expanded_minute,
             type, outcome_type, is_successful,
@@ -68,8 +69,6 @@ def identify_sequences(match_id):
     """, (match_id, tuple(EXCLUDED_TYPES)))
 
     events = cursor.fetchall()
-    cursor.close()
-    conn.close()
 
     sequences = []
     current_sequence = []
@@ -82,13 +81,14 @@ def identify_sequences(match_id):
          event_type, outcome_type, is_successful,
          x, y, end_x, end_y) = event
 
+        # NOTE (correctness decision): the two opponent-event branches below
+        # both fire on any club_id != current_team, so POSSESSION_CHANGE_TYPES
+        # does NOT discriminate here. If "any opponent on-ball action = turnover"
+        # is what you want, collapse to a single `club_id != current_team` check.
         starts_new_sequence = False
-
         if current_team is None:
             starts_new_sequence = True
-        elif event_type in POSSESSION_CHANGE_TYPES and club_id != current_team:
-            starts_new_sequence = True
-        elif club_id != current_team and event_type not in POSSESSION_CHANGE_TYPES:
+        elif club_id != current_team:
             starts_new_sequence = True
 
         if starts_new_sequence:
@@ -130,20 +130,16 @@ def identify_sequences(match_id):
     return sequences
 
 
-def store_sequences(match_id, sequences):
-    conn = psycopg2.connect(**DB_CONFIG)
-    cursor = conn.cursor()
-
+def store_sequences(cursor, match_id, sequences):
     cursor.execute("""
         SELECT COUNT(*) FROM proc_sequences WHERE match_id = %s
     """, (match_id,))
     if cursor.fetchone()[0] > 0:
         print(f"Sequences already stored for match {match_id}, skipping")
-        cursor.close()
-        conn.close()
-        return
+        return 0
 
-    inserted = 0
+    seq_rows = []
+    prepared = []  # parallel list holding the event lists for each seq row
 
     for seq in sequences:
         if not seq:
@@ -170,7 +166,12 @@ def store_sequences(match_id, sequences):
         avg_x = sum(x_values) / len(x_values) if x_values else None
         width = (max(y_values) - min(y_values)) if len(y_values) > 1 else 0
 
-        x_progression = (end_x - start_x) if (end_x and start_x) else None
+        # FIX: use `is not None`, not truthiness — x=0.0 is a real coordinate.
+        x_progression = (
+            end_x - start_x
+            if (end_x is not None and start_x is not None)
+            else None
+        )
 
         start_zone = classify_zone(start_x)
         end_zone = classify_zone(end_x)
@@ -182,23 +183,7 @@ def store_sequences(match_id, sequences):
         ended_with_goal = last_type == 'Goal'
         ended_with_loss = not ended_with_shot and not ended_with_goal
 
-        cursor.execute("""
-            INSERT INTO proc_sequences (
-                match_id, club_id, sequence_number, period,
-                start_minute, start_second, end_minute, end_second,
-                event_count, start_x, start_y, end_x, end_y,
-                x_progression, start_zone, end_zone,
-                ended_with_shot, ended_with_goal, ended_with_loss,
-                max_x, avg_x, width,
-                start_event_type, end_event_type
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s
-            )
-            ON CONFLICT (match_id, club_id, sequence_number) DO NOTHING
-            RETURNING id
-        """, (
+        seq_rows.append((
             match_id, club_id, sequence_number, period,
             start_minute, start_second, end_minute, end_second,
             event_count, start_x, start_y, end_x, end_y,
@@ -207,80 +192,59 @@ def store_sequences(match_id, sequences):
             max_x, avg_x, width,
             first_type, last_type
         ))
+        prepared.append([e['event_id'] for e in seq])
 
-        result = cursor.fetchone()
-        if not result:
-            continue
+    if not seq_rows:
+        return 0
 
-        sequence_id = result[0]
+    # Batch-insert sequences, returning ids in input order so we can map
+    # each returned id back to its event list.
+    inserted_ids = execute_values(
+        cursor,
+        """
+        INSERT INTO proc_sequences (
+            match_id, club_id, sequence_number, period,
+            start_minute, start_second, end_minute, end_second,
+            event_count, start_x, start_y, end_x, end_y,
+            x_progression, start_zone, end_zone,
+            ended_with_shot, ended_with_goal, ended_with_loss,
+            max_x, avg_x, width,
+            start_event_type, end_event_type
+        ) VALUES %s
+        ON CONFLICT (match_id, club_id, sequence_number) DO NOTHING
+        RETURNING id
+        """,
+        seq_rows,
+        fetch=True,
+    )
 
-        for position, event in enumerate(seq):
-            cursor.execute("""
-                INSERT INTO proc_sequence_events (
-                    sequence_id, clean_event_id, position
-                ) VALUES (%s, %s, %s)
-            """, (sequence_id, event['event_id'], position))
+    # CAUTION: with ON CONFLICT DO NOTHING, conflicting rows are skipped and
+    # NOT returned, so RETURNING ids may be shorter than seq_rows. We guard
+    # the skip path by re-checking length; on a fresh match with no prior
+    # sequences (the COUNT guard above ensures this), there are no conflicts.
+    if len(inserted_ids) != len(prepared):
+        raise RuntimeError(
+            f"match {match_id}: expected {len(prepared)} sequence ids, "
+            f"got {len(inserted_ids)} — conflict skipped rows, mapping unsafe"
+        )
 
-        inserted += 1
+    event_rows = []
+    for (seq_id,), event_ids in zip(inserted_ids, prepared):
+        for position, clean_event_id in enumerate(event_ids):
+            event_rows.append((seq_id, clean_event_id, position))
 
-    conn.commit()
-    cursor.close()
-    conn.close()
+    execute_values(
+        cursor,
+        """
+        INSERT INTO proc_sequence_events (sequence_id, clean_event_id, position)
+        VALUES %s
+        """,
+        event_rows,
+    )
+
+    inserted = len(seq_rows)
     print(f"Stored {inserted} sequences for match {match_id}")
-
-
-def backfill_event_types():
-    conn = psycopg2.connect(**DB_CONFIG)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT id FROM proc_sequences
-        WHERE start_event_type IS NULL
-        OR end_event_type IS NULL
-    """)
-    sequence_ids = [row[0] for row in cursor.fetchall()]
-    print(f"Backfilling {len(sequence_ids)} sequences")
-
-    updated = 0
-
-    for seq_id in sequence_ids:
-        cursor.execute("""
-            SELECT ce.type
-            FROM proc_sequence_events pse
-            JOIN clean_events ce ON pse.clean_event_id = ce.id
-            WHERE pse.sequence_id = %s
-            ORDER BY pse.position ASC
-            LIMIT 1
-        """, (seq_id,))
-        first = cursor.fetchone()
-
-        cursor.execute("""
-            SELECT ce.type
-            FROM proc_sequence_events pse
-            JOIN clean_events ce ON pse.clean_event_id = ce.id
-            WHERE pse.sequence_id = %s
-            ORDER BY pse.position DESC
-            LIMIT 1
-        """, (seq_id,))
-        last = cursor.fetchone()
-
-        if first and last:
-            cursor.execute("""
-                UPDATE proc_sequences
-                SET start_event_type = %s,
-                    end_event_type = %s
-                WHERE id = %s
-            """, (first[0], last[0], seq_id))
-            updated += 1
-
-        if updated % 1000 == 0 and updated > 0:
-            conn.commit()
-            print(f"Updated {updated} sequences...")
-
-    conn.commit()
-    cursor.close()
-    conn.close()
-    print(f"Backfill complete. Updated {updated} sequences")
+    return inserted
 
 
 def process_all_matches():
@@ -292,15 +256,51 @@ def process_all_matches():
         ORDER BY match_id
     """)
     match_ids = [row[0] for row in cursor.fetchall()]
-    cursor.close()
-    conn.close()
 
     print(f"Processing {len(match_ids)} matches")
 
-    for match_id in match_ids:
-        sequences = identify_sequences(match_id)
-        store_sequences(match_id, sequences)
+    t0 = time.time()
+    total = 0
+    failed = []
+
+    for i, match_id in enumerate(match_ids, 1):
+        try:
+            sequences = identify_sequences(cursor, match_id)
+            total += store_sequences(cursor, match_id, sequences)
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            failed.append((match_id, str(e)))
+            print(f"  FAILED {match_id}: {e}")
+
+        if i % 50 == 0:
+            rate = i / (time.time() - t0)
+            eta = (len(match_ids) - i) / rate / 60 if rate else 0
+            print(f"{i}/{len(match_ids)}  {rate:.1f} match/s  ETA {eta:.1f}m")
+
+    cursor.close()
+    conn.close()
+    print(f"Done. {total} sequences across {len(match_ids) - len(failed)} matches, "
+          f"{len(failed)} failed, {time.time() - t0:.0f}s")
+    if failed:
+        for mid, err in failed:
+            print(f"  {mid}: {err}")
+
+
+def process_single_match(match_id):
+    """Time/validate one match before committing to the full run."""
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    t0 = time.time()
+    sequences = identify_sequences(cursor, match_id)
+    n = store_sequences(cursor, match_id, sequences)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"match {match_id}: {n} sequences in {time.time() - t0:.2f}s")
+    return n
 
 
 if __name__ == "__main__":
-    backfill_event_types()
+    process_all_matches()
+

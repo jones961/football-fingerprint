@@ -676,6 +676,81 @@ def fix_clean_lineups_columns():
     print("clean_lineups columns fixed")
 
 
+def create_defensive_tables():
+    conn = psycopg2.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS proc_defensive_actions (
+            id                  SERIAL PRIMARY KEY,
+            clean_event_id      INTEGER NOT NULL REFERENCES clean_events(id),
+            match_id            INTEGER NOT NULL REFERENCES matches(match_id),
+            club_id             INTEGER REFERENCES clubs(club_id),
+            player_id           INTEGER REFERENCES players(player_id),
+            player_name         VARCHAR(100),
+            type                VARCHAR(50) NOT NULL,
+            defensive_category  VARCHAR(30) NOT NULL,
+            is_successful       BOOLEAN,
+            period              VARCHAR(20),
+            minute              INTEGER,
+            second              FLOAT,
+            x                   FLOAT,
+            y                   FLOAT,
+            UNIQUE(clean_event_id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_def_actions_player
+        ON proc_defensive_actions(player_id)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_def_actions_match
+        ON proc_defensive_actions(match_id)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_def_actions_category
+        ON proc_defensive_actions(defensive_category)
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS proc_keeper_actions (
+            id                  SERIAL PRIMARY KEY,
+            clean_event_id      INTEGER NOT NULL REFERENCES clean_events(id),
+            match_id            INTEGER NOT NULL REFERENCES matches(match_id),
+            club_id             INTEGER REFERENCES clubs(club_id),
+            player_id           INTEGER REFERENCES players(player_id),
+            player_name         VARCHAR(100),
+            type                VARCHAR(50) NOT NULL,
+            keeper_category     VARCHAR(30) NOT NULL,
+            is_successful       BOOLEAN,
+            period              VARCHAR(20),
+            minute              INTEGER,
+            second              FLOAT,
+            x                   FLOAT,
+            y                   FLOAT,
+            UNIQUE(clean_event_id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_keeper_actions_player
+        ON proc_keeper_actions(player_id)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_keeper_actions_match
+        ON proc_keeper_actions(match_id)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_keeper_actions_category
+        ON proc_keeper_actions(keeper_category)
+    """)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("Defensive tables created successfully")
+
 if __name__ == "__main__":
     create_tables()
     add_caretaker_column()
@@ -693,3 +768,4 @@ if __name__ == "__main__":
     create_clean_player_match_stats_table()
     add_role_group_to_clean_lineups()
     fix_clean_lineups_columns()
+    create_defensive_tables()
